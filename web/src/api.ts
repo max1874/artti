@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import type { Event, Page } from "../../src/page.ts";
+import type { Event, Page, Screen, Version } from "../../src/page.ts";
 
-export type { Event, Page };
+export type { Event, Page, Screen, Version };
 
-export type Loaded = { project: { id: string; name: string }; slug: string; page: Page; events: Event[] };
-export type Library = { id: string; name: string; pages: { slug: string; title: string; type: string; status: string; updated: number; said: number }[] }[];
+export type Loaded = { project: { id: string; name: string }; slug: string; page: Page; events: Event[]; screens: Screen[] };
+export type Library = { id: string; name: string; screens: number; pages: { slug: string; title: string; type: string; status: string; updated: number; said: number }[] }[];
 
 const get = async <T,>(path: string) => {
   const response = await fetch(path);
@@ -43,8 +43,12 @@ export async function say(project: string, slug: string, event: Partial<Event>) 
   return (await response.json()) as Event;
 }
 
-export const asset = (project: string, slug: string, path: string) =>
-  /^(https?:|data:)/u.test(path) ? path : `/files/${project}/${encodeURIComponent(slug)}/${path.split("/").map(encodeURIComponent).join("/")}`;
+/** A file under the project's .artti/ (a screen version), or a URL as is. */
+export const file = (project: string, path: string) =>
+  /^(https?:|data:)/u.test(path) ? path : `/files/${project}/${path.split("/").map(encodeURIComponent).join("/")}`;
+
+/** A page's own asset, written relative to the page. */
+export const asset = (project: string, slug: string, path: string) => /^(https?:|data:)/u.test(path) ? path : file(project, `${slug}/${path}`);
 
 export function ago(at: number) {
   const s = (Date.now() - at) / 1000;

@@ -14,29 +14,30 @@ export type Page = {
   updated: number;
 } & Partial<VerifyBody & BoardBody>;
 
-/** A screen the work produced, as the person will see it. */
-export type Screen = {
-  id: string;
-  /** The frame's name on the board. */
-  title?: string;
-  image: string;
-  /** What was done to get here. */
-  scenario?: string;
-  /** What the screen shows that matters. */
-  observed?: string;
-  /** Where: device, build, data, URL. */
-  environment?: string;
-  /** The same screen before the change, shown on the left. */
-  before?: string;
-};
+/**
+ * One screen of the product, with every version it has had, oldest first: `.artti/screens/<id>/screen.json`, its images in
+ * `assets/` beside it. `artti shot` adds a version.
+ */
+export type Screen = { id: string; title: string; versions: Version[] };
 
-/** Something checked by running it, with what it printed. */
-export type Claim = { id: string; text: string; evidence?: string };
+export type Version = {
+  /** 1, 2, 3… within the screen. */
+  n: number;
+  /** A path inside `.artti/`, or a URL once a storage backend has moved it. */
+  image: string;
+  at: number;
+  /** What this version is, e.g. "字号升级" or "复杂留给系统"; defaults to the commit. */
+  label?: string;
+  commit?: string;
+  /** What changed, in a line. */
+  note?: string;
+};
 
 /** Something not checked, and why not. */
 export type Unverified = { id: string; text: string; why?: string };
 
-export type VerifyBody = { screens: Screen[]; claims: Claim[]; unverified: Unverified[] };
+/** A round of review: the screens it changed, each shown with its history, the newest version under review. */
+export type VerifyBody = { screens: string[]; unverified: Unverified[] };
 
 export type Option = { id: string; title: string; image?: string; html?: string; note?: string; recommended?: boolean };
 export type BoardBody = { question: string; options: Option[] };
@@ -71,7 +72,11 @@ export function validate(value: unknown): Page {
   if (!page || typeof page !== "object") throw new Error("page.json is not an object");
   if (!types.includes(page.type)) throw new Error(`unknown page type: ${String(page.type)}`);
   if (typeof page.title !== "string" || !page.title.trim()) throw new Error("a page needs a title");
-  if (page.type === "verify") for (const key of ["screens", "claims", "unverified"] as const) page[key] ??= [];
+  if (page.type === "verify") {
+    page.screens ??= [];
+    page.unverified ??= [];
+    if (page.screens.some(id => typeof id !== "string")) throw new Error("a verify page lists screen ids; add versions with `artti shot`");
+  }
   if (page.type === "board") page.options ??= [];
   return page;
 }

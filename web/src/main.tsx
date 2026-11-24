@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { type Library as LibraryData, type Loaded, ago, useLive } from "./api.ts";
 import { Verify } from "./Verify.tsx";
 import { Board } from "./Board.tsx";
+import { Screens } from "./Screens.tsx";
 import "./style.css";
 
 const typeNames: Record<string, string> = { verify: "验收", board: "方案", doc: "文档", whiteboard: "白板", bench: "调参", deck: "幻灯片" };
@@ -31,6 +32,11 @@ function Library() {
   return (
     <main className="library">
       <h1>artti</h1>
+      {value.filter(project => project.screens > 0).map(project => (
+        <a key={project.id} className="history" href={`/s/${project.id}`} onClick={e => { e.preventDefault(); go(`/s/${project.id}`); }}>
+          {project.name} 的画面历史 · {project.screens} 个画面
+        </a>
+      ))}
       {pages.length === 0 && <p className="empty">还没有页面。agent 用 <code>artti new</code> 做出来的页面会出现在这里。</p>}
       <ul>
         {pages.map(page => (
@@ -69,7 +75,10 @@ function PageView({ project, slug }: { project: string; slug: string }) {
 function App() {
   const path = usePath();
   const match = path.match(/^\/p\/([^/]+)\/([^/]+)/u);
-  return match ? <PageView project={match[1]!} slug={decodeURIComponent(match[2]!)} /> : <Library />;
+  if (match) return <PageView project={match[1]!} slug={decodeURIComponent(match[2]!)} />;
+  const screens = path.match(/^\/s\/([^/]+)/u);
+  if (screens) return <><header className="bar floating"><a href="/" onClick={e => { e.preventDefault(); go("/"); }}>artti</a><span>画面历史</span></header><Screens project={screens[1]!} /></>;
+  return <Library />;
 }
 
 createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);

@@ -17,6 +17,8 @@ A project's pages live in `.artti/<slug>/` at the repository root (or the direct
 - `feedback.jsonl`: what was said on it, appended, never rewritten: `{ id, at, by: "human" | "agent", kind, target?, text?, value? }`. `kind` is `comment`, `reply`, `pick`, `verdict` or `submit`; `target` names the option, item, sentence or point it is about. A `submit` closes a round; `wait` returns the events since the last one it reported.
 - Assets (images, HTML) next to them, referenced by relative path, or by URL once a storage backend has put them elsewhere.
 
+A project's screens live beside its pages in `.artti/screens/<id>/`: `screen.json` (`{ id, title, versions: [{ n, image, at, label?, commit?, note? }] }`) and each version's image in `assets/`. A screen is the unit people compare over time; `/s/<project>` shows every screen with all its versions.
+
 The machine keeps `~/.artti/projects.json` (the projects it has seen, so one library lists them all) and the running server's address in `~/.artti/server.json`.
 
 ### Storage
@@ -29,7 +31,7 @@ Every `page.json` has `{ type, title, created, updated, status, summary? }`; `st
 
 | Type | For | Body | The person |
 |---|---|---|---|
-| `verify` | Work is built; is it right? | `screens` (image, caption: scenario, observed, environment; optional `before`), `claims` (what was checked by running something, with the raw output), `unverified` (what was not, and why) | passes, rejects or waives each item, comments, submits |
+| `verify` | Work is built; is it right? | `screens`: ids of the screens it changed, each shown as a row of all its versions (`artti shot`), the newest under review; `unverified`: what was not checked, and why, as a note | passes or rejects each screen, pins comments on any version, submits |
 | `board` | More than one way it could look | `question`, `options` (image or HTML, title, note, `recommended`) | picks one, comments on any spot |
 | `doc` | Structure, architecture, tradeoffs | Markdown with inline `asks` | answers asks, comments on a sentence |
 | `whiteboard` | Parts and arrows | a scene of boxes, arrows, text | draws too, asks about a selection |

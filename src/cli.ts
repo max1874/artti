@@ -6,12 +6,15 @@ import { existsSync, readFileSync, writeFileSync, watch } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { type Event, type Page, type Status, type Type, types } from "./page.ts";
-import { append, create, home, latest, pagesDir, projectId, projectRoot, read, slugs, update } from "./store.ts";
+import { append, create, home, latest, pagesDir, projectId, projectRoot, read, screen, shot, slugs, update } from "./store.ts";
 import { defaultPort, serve } from "./server.ts";
 
 const usage = `artti — pages an agent puts its work on; the person answers on them.
 
+  artti shot <screen> <image> [--title <name>] [--label <version>] [--note <what changed>] [--at <when, for an older capture>]
+                                                         add a version of a screen (ids: letters, digits, - and _)
   artti new <type> --title <title> [--body <file.json|->] make a page (${types.join(", ")}); "-" reads the body from stdin
+                   [--screens <id,id>]                   verify: the screens whose newest version is under review
   artti open [page]                                       show it in the browser
   artti url [page]                                        print its link
   artti wait [page] [--timeout <seconds>]                 block until the person submits, then print what they said
@@ -26,7 +29,7 @@ const usage = `artti — pages an agent puts its work on; the person answers on 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
-    title: { type: "string" }, body: { type: "string" }, timeout: { type: "string" }, to: { type: "string" },
+    title: { type: "string" }, body: { type: "string" }, screens: { type: "string" }, label: { type: "string" }, note: { type: "string" }, at: { type: "string" }, timeout: { type: "string" }, to: { type: "string" },
     port: { type: "string" }, help: { type: "boolean", short: "h" },
   },
 });
@@ -79,12 +82,15 @@ const link = async (slug: string) => `http://localhost:${await server()}/p/${pro
 /** What an event is about, in the page's own words. */
 function about(page: Page, target?: string) {
   if (!target) return "the page";
-  const [kind, id] = target.split("/");
-  const item = kind === "screens" ? page.screens?.find(s => s.id === id)
-    : kind === "claims" ? page.claims?.find(c => c.id === id)
-    : kind === "unverified" ? page.unverified?.find(u => u.id === id)
+  const [kind, id, version] = target.split("/");
+  if (kind === "screens") {
+    const found = screen(root, id!);
+    const v = version ? found?.versions.find(v => `v${v.n}` === version) : found?.versions.at(-1);
+    return `${target} “${found?.title ?? id}${v ? ` v${v.n}${v.label ? ` ${v.label}` : ""}` : ""}”`;
+  }
+  const item = kind === "unverified" ? page.unverified?.find(u => u.id === id)
     : kind === "options" ? page.options?.find(o => o.id === id) : undefined;
-  const words = item && ("text" in item ? item.text : "title" in item ? item.title : "observed" in item ? item.observed ?? item.scenario : undefined);
+  const words = item && ("text" in item ? item.text : item.title);
   return words ? `${target} “${String(words).slice(0, 60)}”` : target;
 }
 
@@ -138,9 +144,20 @@ async function main() {
       if (!values.title) fail("--title is required");
       // stdin only when asked: an agent's shell may hold it open forever.
       const text = values.body === "-" ? readFileSync(0, "utf8") : values.body ? readFileSync(values.body, "utf8") : "";
-      const { slug, dir } = create(root, type, values.title, text.trim() ? JSON.parse(text) : {});
+      const body = { ...text.trim() ? JSON.parse(text) : {}, ...values.screens ? { screens: values.screens.split(",").map(s => s.trim()) } : {} };
+      for (const id of type === "verify" ? body.screens ?? [] : []) if (!screen(root, id)) fail(`no screen "${id}"; add it with \`artti shot ${id} <image>\``);
+      const { slug, dir } = create(root, type, values.title, body);
       console.log(`${slug}\n  files: ${dir}\n  link:  ${await link(slug)}`);
       return;
+    }
+    case "shot": {
+      const [id, file] = rest;
+      if (!id || !file) fail("usage: artti shot <screen> <image> [--title <name>] [--label <version>] [--note <what changed>]");
+      if (!existsSync(file)) fail(`no file ${file}`);
+      const at = values.at ? new Date(values.at).getTime() : undefined;
+      if (at !== undefined && Number.isNaN(at)) fail(`--at is not a date: ${values.at}`);
+      const version = shot(root, id, file, { title: values.title, label: values.label, note: values.note, at });
+      return console.log(`${id} v${version.n}${version.commit ? ` (${version.commit})` : ""}`);
     }
     case "open": {
       const url = await link(resolvePage(rest[0]));

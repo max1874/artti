@@ -1,10 +1,11 @@
 // Pages on disk: a project's `.artti/<slug>/`, and the machine's list of projects in `~/.artti`.
 
+import { execFileSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, appendFileSync, statSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve, basename } from "node:path";
-import { type Event, type Page, type Type, validate } from "./page.ts";
+import { basename, dirname, extname, join, resolve } from "node:path";
+import { type Event, type Page, type Screen, type Type, type Version, validate } from "./page.ts";
 
 export const home = process.env.ARTTI_HOME ?? join(homedir(), ".artti");
 
@@ -83,8 +84,7 @@ export function update(root: string, slug: string, change: (page: Page) => Page)
 export function create(root: string, type: Type, title: string, body: Record<string, unknown> = {}) {
   const dir = pagesDir(root);
   mkdirSync(dir, { recursive: true });
-  // Assets stay on this machine unless the project chose otherwise (docs/design.md, Storage).
-  if (!existsSync(join(dir, ".gitignore"))) writeFileSync(join(dir, ".gitignore"), "*/assets/\n");
+  ignoreAssets(root);
   const now = new Date();
   const day = String(now.getMonth() + 1).padStart(2, "0") + String(now.getDate()).padStart(2, "0");
   const base = `${day}-${title.trim().replace(/[\s/\\:*?"<>|]+/gu, "-").slice(0, 60)}`;
@@ -110,3 +110,43 @@ export function latest(root: string) {
 }
 
 export const label = (root: string) => basename(root);
+
+// Assets stay on this machine unless the project chose otherwise (docs/design.md, Storage).
+function ignoreAssets(root: string) {
+  mkdirSync(pagesDir(root), { recursive: true });
+  writeFileSync(join(pagesDir(root), ".gitignore"), "**/assets/\n");
+}
+
+const screensDir = (root: string) => join(pagesDir(root), "screens");
+
+export function screen(root: string, id: string): Screen | undefined {
+  return json<Screen | undefined>(join(screensDir(root), safe(id), "screen.json"), undefined);
+}
+
+export function screens(root: string): Screen[] {
+  const dir = screensDir(root);
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir).flatMap(id => screen(root, id) ?? []).sort((a, b) => (b.versions.at(-1)?.at ?? 0) - (a.versions.at(-1)?.at ?? 0));
+}
+
+/** Adds `file` as the newest version of a screen, creating the screen on its first version. */
+export function shot(root: string, id: string, file: string, details: { title?: string; label?: string; note?: string; at?: number }) {
+  if (!/^[\p{L}\p{N}_-]+$/u.test(id)) throw new Error(`a screen id is letters, digits, - and _: ${id}`);
+  ignoreAssets(root);
+  const dir = join(screensDir(root), id);
+  mkdirSync(join(dir, "assets"), { recursive: true });
+  const current = screen(root, id) ?? { id, title: details.title ?? id, versions: [] };
+  const n = (current.versions.at(-1)?.n ?? 0) + 1;
+  const image = `screens/${id}/assets/${n}${extname(file).toLowerCase() || ".png"}`;
+  copyFileSync(file, join(pagesDir(root), image));
+  // An older capture added later was not taken at today's commit.
+  let commit: string | undefined;
+  if (details.at === undefined) try {
+    commit = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {}
+  const version: Version = { n, image, at: details.at ?? Date.now(), ...details.label ? { label: details.label } : {}, ...commit ? { commit } : {}, ...details.note ? { note: details.note } : {} };
+  const next: Screen = { ...current, title: details.title ?? current.title, versions: [...current.versions, version] };
+  writeFileSync(join(dir, "screen.json"), JSON.stringify(next, null, 2) + "\n");
+  remember(root);
+  return version;
+}

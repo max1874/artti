@@ -1,7 +1,7 @@
 // More than one way it could look: every option a frame side by side, the recommended one marked, the agent's reasoning
 // on a sticky note; the person picks one.
 
-import type { Loaded } from "./api.ts";
+import { type Loaded, asset } from "./api.ts";
 import { Canvas, Frame, Group, RoundBar, useCtx } from "./canvas.tsx";
 
 export function Board({ data }: { data: Loaded }) {
@@ -15,7 +15,8 @@ export function Board({ data }: { data: Loaded }) {
     <Canvas ctx={ctx} bar={<RoundBar ctx={ctx} progress={chosen ? `选了「${chosen.title}」` : "还没选"} ready={!!chosen} />}>
       <Group chip="方案" title={page.question ?? page.title}>
         {options.map(option => (
-          <Frame key={option.id} target={`options/${option.id}`} title={option.title} image={option.image} html={option.html}
+          <Frame key={option.id} target={`options/${option.id}`} title={option.title}
+            image={option.image && asset(data.project.id, data.slug, option.image)} html={option.html && asset(data.project.id, data.slug, option.html)}
             selected={picked === option.id}
             lead={<button className={`radio${picked === option.id ? " on" : ""}`} aria-label={`选「${option.title}」`} onClick={() => pick(option.id)} />}
             badge={option.recommended ? <span className="badge">推荐</span> : undefined}

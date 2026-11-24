@@ -5,7 +5,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Event } from "./page.ts";
-import { append, home, label, pagesDir, projectId, projects, read, safe, slugs } from "./store.ts";
+import { append, home, label, pagesDir, projectId, projects, read, safe, screen, screens, slugs } from "./store.ts";
 
 export const defaultPort = 7317;
 const web = fileURLToPath(new URL("../web/dist/", import.meta.url));
@@ -23,6 +23,7 @@ function library() {
   return projects().map(root => ({
     id: projectId(root),
     name: label(root),
+    screens: screens(root).length,
     pages: slugs(root).flatMap(slug => {
       try {
         const { page, events } = read(root, slug);
@@ -100,6 +101,11 @@ export function serve(port = defaultPort) {
           request.on("close", () => live.delete(response));
           return;
         }
+        if (parts[1] === "screens" && parts.length === 3) {
+          const root = rootOf(parts[2]!);
+          if (!root) return send(response, 404, { error: "no such project" });
+          return send(response, 200, { project: { id: parts[2], name: label(root) }, screens: screens(root) });
+        }
         if (parts[1] === "page" && parts.length === 4) {
           const root = rootOf(parts[2]!);
           if (!root) return send(response, 404, { error: "no such project" });
@@ -111,15 +117,17 @@ export function serve(port = defaultPort) {
             return send(response, 200, append(root, slug, { by: "human", kind: kind!, target, spot, text, value, to }));
           }
           const { page, events } = read(root, slug);
-          return send(response, 200, { project: { id: parts[2], name: label(root) }, slug, page, events });
+          // A verify page shows its screens with their whole history.
+          const shown = page.type === "verify" ? (page.screens ?? []).flatMap(id => screen(root, id) ?? []) : [];
+          return send(response, 200, { project: { id: parts[2], name: label(root) }, slug, page, events, screens: shown });
         }
         return send(response, 404, { error: "not found" });
       }
-      if (parts[0] === "files" && parts.length >= 4) {
+      // Any file under a project's .artti/: a page's assets, a screen's versions.
+      if (parts[0] === "files" && parts.length >= 3) {
         const root = rootOf(parts[1]!);
         if (!root) return send(response, 404, { error: "no such project" });
-        const dir = join(pagesDir(root), safe(parts[2]!));
-        return file(response, inside(dir, parts.slice(3).join("/")));
+        return file(response, inside(pagesDir(root), parts.slice(2).join("/")));
       }
       // The viewer: its files, and its own routes for everything else.
       const asset = parts.length ? inside(web, parts.join("/")) : "";

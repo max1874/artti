@@ -1,7 +1,7 @@
 // The artboard: a canvas you pan and zoom, frames on it, pins on the frames, and the bar that sends the round back.
 
-import { createContext, type ReactNode, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { type Event, type Loaded, ago, asset, say } from "./api.ts";
+import { Fragment, createContext, type ReactNode, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type Event, type Loaded, type Screen, ago, file, say } from "./api.ts";
 
 export type Tool = "move" | "comment";
 type Camera = { x: number; y: number; z: number };
@@ -25,7 +25,7 @@ export function verdictsOf(events: Event[]) {
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const interactive = (target: EventTarget | null) => target instanceof Element && !!target.closest("button, a, input, textarea, iframe, .popover, .report");
 
-export function Canvas({ ctx, children, bar }: { ctx: Ctx; children: ReactNode; bar: ReactNode }) {
+export function Canvas({ ctx, children, bar, readOnly }: { ctx: Ctx; children: ReactNode; bar?: ReactNode; readOnly?: boolean }) {
   const viewport = useRef<HTMLDivElement>(null);
   const world = useRef<HTMLDivElement>(null);
   const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, z: 1 });
@@ -67,7 +67,7 @@ export function Canvas({ ctx, children, bar }: { ctx: Ctx; children: ReactNode; 
     const key = (event: KeyboardEvent) => {
       if (event.target instanceof HTMLElement && event.target.closest("input, textarea")) return;
       if (event.key === "v") setTool("move");
-      if (event.key === "c") setTool("comment");
+      if (event.key === "c" && !readOnly) setTool("comment");
       if (event.key === "0" || (event.key === "1" && event.shiftKey)) { touched.current = false; fit(); }
       if (event.key === "Escape") setTool("move");
     };
@@ -99,7 +99,7 @@ export function Canvas({ ctx, children, bar }: { ctx: Ctx; children: ReactNode; 
       </div>
       <div className="tools">
         <button className={tool === "move" ? "on" : ""} title="移动（V）" onClick={() => setTool("move")}>移动</button>
-        <button className={tool === "comment" ? "on" : ""} title="点在画板上评论（C）" onClick={() => setTool("comment")}>评论</button>
+        {!readOnly && <button className={tool === "comment" ? "on" : ""} title="点在画板上评论（C）" onClick={() => setTool("comment")}>评论</button>}
         <button title="整块放进屏幕（0）" onClick={() => { touched.current = false; fit(); }}>{Math.round(camera.z * 100)}%</button>
       </div>
       {bar}
@@ -108,7 +108,7 @@ export function Canvas({ ctx, children, bar }: { ctx: Ctx; children: ReactNode; 
 }
 
 /** A labelled group of frames: the chip, the title, what the group asks, and its own actions. */
-export function Group({ chip, title, note, actions, children }: { chip: string; title: string; note?: string; actions?: ReactNode; children: ReactNode }) {
+export function Group({ chip, title, note, actions, rows, children }: { chip: string; title: string; note?: string; actions?: ReactNode; rows?: boolean; children: ReactNode }) {
   return (
     <section className="group">
       <header>
@@ -117,12 +117,12 @@ export function Group({ chip, title, note, actions, children }: { chip: string; 
         {actions}
       </header>
       {note && <p className="gnote">{note}</p>}
-      <div className="frames">{children}</div>
+      <div className={rows ? "rows" : "frames"}>{children}</div>
     </section>
   );
 }
 
-/** One frame: a header, an image or a page, pins on it. */
+/** One frame: a header, an image or a page (both as URLs), pins on it. */
 export function Frame({ target, title, lead, badge, actions, image, html, caption, selected }: {
   target: string; title: string; lead?: ReactNode; badge?: ReactNode; actions?: ReactNode;
   image?: string; html?: string; caption?: ReactNode; selected?: boolean;
@@ -132,7 +132,7 @@ export function Frame({ target, title, lead, badge, actions, image, html, captio
   const [draft, setDraft] = useState<{ x: number; y: number }>();
   const [open, setOpen] = useState<string>();
   const [expanded, setExpanded] = useState(false);
-  const src = image ? asset(ctx.data.project.id, ctx.data.slug, image) : html ? asset(ctx.data.project.id, ctx.data.slug, html) : undefined;
+  const src = image ?? html;
   const pins = ctx.data.events.filter(e => e.kind === "comment" && e.target === target && e.spot);
   return (
     <div className={`frame${selected ? " selected" : ""}`} style={{ width }}>
@@ -278,6 +278,35 @@ export function RoundBar({ ctx, progress, ready }: { ctx: Ctx; progress: string;
                 try { await ctx.send({ kind: "submit", text: text.trim() || undefined }); setText(""); } finally { setSending(false); }
               }}>提交</button>
           </>}
+    </div>
+  );
+}
+
+/** One screen's versions, oldest to newest, left to right; under review, the newest is marked and the row takes the verdict. */
+export function ScreenRow({ ctx, screen, review }: { ctx: Ctx; screen: Screen; review?: boolean }) {
+  const latest = screen.versions.at(-1);
+  return (
+    <div className="screen-row">
+      <div className="row-head">
+        <h3>{screen.title}</h3>
+        <span className="muted">{screen.versions.length} 个版本</span>
+        {review && <Verdicts ctx={ctx} target={`screens/${screen.id}`} labels={["通过", "打回"]} />}
+      </div>
+      <div className="versions">
+        {screen.versions.map((version, i) => (
+          <Fragment key={version.n}>
+            {i > 0 && <span className="arrow">→</span>}
+            <Frame target={`screens/${screen.id}/v${version.n}`} title={`v${version.n}${version.label ? ` · ${version.label}` : ""}`}
+              image={file(ctx.data.project.id, version.image)}
+              badge={review && version === latest ? <span className="badge now">本轮</span> : undefined}
+              selected={review && version === latest}
+              caption={<>
+                <p className="muted">{new Date(version.at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}{version.commit ? ` · ${version.commit}` : ""}</p>
+                {version.note && <p>{version.note}</p>}
+              </>} />
+          </Fragment>
+        ))}
+      </div>
     </div>
   );
 }

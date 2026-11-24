@@ -214,3 +214,16 @@ p { margin: 0; }
   .roundbar { gap: 8px; padding-left: 14px; }
   .roundbar .rtitle, .roundbar input { display: none; }
 }
+
+/* Screens and their versions */
+.rows { display: flex; flex-direction: column; gap: 72px; margin-top: 32px; }
+.screen-row .row-head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.screen-row h3 { margin: 0; font-size: 20px; }
+.versions { display: flex; align-items: flex-start; gap: 20px; }
+.arrow { align-self: center; color: var(--faint); font-size: 28px; padding-top: 30px; }
+.badge.now { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.sticky b { display: block; margin-bottom: 4px; }
+.sticky p + p { margin-top: 4px; }
+.sticky .why { opacity: 0.75; }
+.rows > .sticky { margin-top: 0; width: 560px; }
+.library .history { display: block; padding: 10px 12px; margin-bottom: 16px; color: var(--ink); font-weight: 600; text-decoration: none; border-radius: 10px; background: var(--frame); box-shadow: var(--shadow); }

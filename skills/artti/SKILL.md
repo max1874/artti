@@ -15,34 +15,32 @@ description: Put work in front of the person as a page they answer on, instead o
 
 ## The loop
 
-1. Write the body as JSON and create the page:
+1. Capture every screen the work changed and add it as that screen's newest version. A screen keeps all its versions, so the
+   person sees how it got here:
 
    ```bash
-   artti new verify --title "<what was done>" --body body.json
+   artti shot mac-chat out/chat.png --title "Mac 对话" --label "复杂留给系统" --note "失败的消息旁边有「再试一次」"
    ```
 
-   It prints the page directory and its link. Put images in the page's `assets/` and refer to them as `assets/<file>`.
-2. Show it: `artti open` (opens the browser on the newest page), and tell the person the link.
-3. Wait in the background, so you stay free: `artti wait` (Claude Code: run it as a background command; you are notified when it exits). It prints each verdict, pick and comment, with comment ids, then `SUBMITTED` and any overall note.
-4. Act on it. Answer each comment where it was made: `artti reply --to <comment id> "<what you did>"`. Update `page.json` when the work changes; the open page refreshes by itself.
-5. When the person passes everything: `artti status passed`. If more rounds are needed, `artti wait` again.
+   Use the same screen id every time the same screen is captured (`mac-chat`, `ios-settings`), the same window size and
+   appearance, so versions compare. `--title` is needed once; `--label` names the version (default: the commit).
+2. Make the round: `artti new verify --title "<what was done>" --screens mac-chat,mac-plugins --body body.json`, where the
+   body holds the summary and the gaps:
 
-## verify body
+   ```json
+   { "summary": "One or two sentences: the result, in words the person could repeat.",
+     "unverified": [{ "id": "android", "text": "What was not checked", "why": "Why not, and what would check it" }] }
+   ```
 
-```json
-{
-  "summary": "One or two sentences: the result, in words the person could repeat.",
-  "unverified": [{ "id": "android", "text": "What was not checked", "why": "Why not, and what would check it" }],
-  "screens": [{ "id": "home", "title": "Short frame name", "image": "assets/01.png", "before": "assets/01-before.png",
-                "scenario": "What was done to get here", "observed": "What the screen shows that matters",
-                "environment": "Device, build, data, URL" }],
-  "claims": [{ "id": "api", "text": "What was checked by running something", "evidence": "the command and its raw output" }]
-}
-```
+   The page shows each listed screen as a row of its versions, the newest marked; `unverified` is a note beside them.
+3. Show it: `artti open`, and tell the person the link.
+4. Wait in the background, so you stay free: `artti wait` (Claude Code: run it as a background command; you are notified
+   when it exits). It prints each verdict, pick and pinned comment with its id, then `SUBMITTED` and any overall note.
+5. Act on it, then answer each comment where it was made: `artti reply --to <comment id> "<what you did>"`. A new capture
+   is a new `artti shot` and, for another round, a new `artti new verify`.
+6. When the person passes everything: `artti status passed`.
 
-- `unverified` shows first on the page. Put every gap there; an empty list is a claim too.
-- A claim needs `evidence` from a real run. A build or a passing type check is not evidence that the feature works.
-- Screens are real captures of the running product, never mockups, with `before` when the change is visual.
+Evidence that is not a screen (commands run, their output) goes in your report in the terminal, not on the page.
 
 ## board body
 
