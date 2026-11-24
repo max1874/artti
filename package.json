@@ -1,0 +1,29 @@
+{
+  "name": "artt",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pages an agent puts its work on, and a way to answer on them that reaches the agent.",
+  "type": "module",
+  "bin": {
+    "artt": "src/cli.ts"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "vite build web",
+    "dev": "vite web"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  },
+  "dependencies": {
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  }
+}
