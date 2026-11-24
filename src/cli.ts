@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// artt: pages an agent puts its work on, and the person's answer on them. docs/design.md.
+// artti: pages an agent puts its work on, and the person's answer on them. docs/design.md.
 
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync, watch } from "node:fs";
@@ -9,17 +9,17 @@ import { type Event, type Page, type Status, type Type, types } from "./page.ts"
 import { append, create, home, latest, pagesDir, projectId, projectRoot, read, slugs, update } from "./store.ts";
 import { defaultPort, serve } from "./server.ts";
 
-const usage = `artt — pages an agent puts its work on; the person answers on them.
+const usage = `artti — pages an agent puts its work on; the person answers on them.
 
-  artt new <type> --title <title> [--body <file.json|->] make a page (${types.join(", ")}); "-" reads the body from stdin
-  artt open [page]                                       show it in the browser
-  artt url [page]                                        print its link
-  artt wait [page] [--timeout <seconds>]                 block until the person submits, then print what they said
-  artt said [page]                                       print everything said on it
-  artt reply [page] --to <id> <text>                     answer a comment under it
-  artt status [page] <open|answered|passed|rejected|closed>
-  artt list                                              this project's pages
-  artt serve [--port <port>]                             run the server in the foreground
+  artti new <type> --title <title> [--body <file.json|->] make a page (${types.join(", ")}); "-" reads the body from stdin
+  artti open [page]                                       show it in the browser
+  artti url [page]                                        print its link
+  artti wait [page] [--timeout <seconds>]                 block until the person submits, then print what they said
+  artti said [page]                                       print everything said on it
+  artti reply [page] --to <id> <text>                     answer a comment under it
+  artti status [page] <open|answered|passed|rejected|closed>
+  artti list                                              this project's pages
+  artti serve [--port <port>]                             run the server in the foreground
 
 [page] is a page's directory name or a unique start of it; without it, the newest page.`;
 
@@ -34,7 +34,7 @@ const [command, ...rest] = positionals;
 const root = projectRoot();
 
 function fail(message: string): never {
-  console.error(`artt: ${message}`);
+  console.error(`artti: ${message}`);
   process.exit(1);
 }
 
@@ -103,7 +103,7 @@ async function wait(slug: string, timeout: number) {
   const dir = join(pagesDir(root), slug);
   const cursorPath = join(dir, ".reported");
   const reported = existsSync(cursorPath) ? readFileSync(cursorPath, "utf8").trim() : "";
-  console.error(`artt: waiting for an answer on ${await link(slug)}`);
+  console.error(`artti: waiting for an answer on ${await link(slug)}`);
   const deadline = timeout ? Date.now() + timeout * 1000 : Infinity;
   for (;;) {
     const { page, events } = read(root, slug);
@@ -121,7 +121,7 @@ async function wait(slug: string, timeout: number) {
       for (const event of round) console.log(describe(page, event));
       return;
     }
-    if (Date.now() > deadline) fail("no answer yet; run `artt wait` again to keep waiting");
+    if (Date.now() > deadline) fail("no answer yet; run `artti wait` again to keep waiting");
     await new Promise<void>(resolve => {
       const watcher = watch(dir, () => { watcher.close(); resolve(); });
       setTimeout(() => { watcher.close(); resolve(); }, 2000);
@@ -160,7 +160,7 @@ async function main() {
       const named = words.length > 0;
       const slug = resolvePage(named ? first : undefined);
       const text = (named ? words : [first]).join(" ").trim();
-      if (!values.to || !text) fail("usage: artt reply [page] --to <comment id> <text>");
+      if (!values.to || !text) fail("usage: artti reply [page] --to <comment id> <text>");
       append(root, slug, { by: "agent", kind: "reply", to: values.to, text });
       return;
     }

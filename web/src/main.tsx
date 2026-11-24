@@ -30,8 +30,8 @@ function Library() {
   const pages = value.flatMap(project => project.pages.map(page => ({ ...page, project }))).sort((a, b) => b.updated - a.updated);
   return (
     <main className="library">
-      <h1>artt</h1>
-      {pages.length === 0 && <p className="empty">还没有页面。agent 用 <code>artt new</code> 做出来的页面会出现在这里。</p>}
+      <h1>artti</h1>
+      {pages.length === 0 && <p className="empty">还没有页面。agent 用 <code>artti new</code> 做出来的页面会出现在这里。</p>}
       <ul>
         {pages.map(page => (
           <li key={page.project.id + page.slug}>
@@ -55,7 +55,7 @@ function PageView({ project, slug }: { project: string; slug: string }) {
   return (
     <>
       <header className="bar">
-        <a href="/" onClick={e => { e.preventDefault(); go("/"); }}>artt</a>
+        <a href="/" onClick={e => { e.preventDefault(); go("/"); }}>artti</a>
         <span>{value.project.name}</span>
         <span className={`status ${value.page.status}`}>{statusNames[value.page.status] ?? value.page.status}</span>
       </header>

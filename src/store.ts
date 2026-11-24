@@ -1,4 +1,4 @@
-// Pages on disk: a project's `.artt/<slug>/`, and the machine's list of projects in `~/.artt`.
+// Pages on disk: a project's `.artti/<slug>/`, and the machine's list of projects in `~/.artti`.
 
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, appendFileSync, statSync } from "node:fs";
@@ -6,7 +6,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve, basename } from "node:path";
 import { type Event, type Page, type Type, validate } from "./page.ts";
 
-export const home = process.env.ARTT_HOME ?? join(homedir(), ".artt");
+export const home = process.env.ARTTI_HOME ?? join(homedir(), ".artti");
 
 /** The repository root holding `dir`, or `dir` itself outside a repository. */
 export function projectRoot(dir = process.cwd()) {
@@ -28,7 +28,7 @@ const json = <T>(path: string, fallback: T): T => {
 };
 
 export function projects(): string[] {
-  return json<string[]>(join(home, "projects.json"), []).filter(root => existsSync(join(root, ".artt")));
+  return json<string[]>(join(home, "projects.json"), []).filter(root => existsSync(join(root, ".artti")));
 }
 
 export function remember(root: string) {
@@ -37,7 +37,7 @@ export function remember(root: string) {
   if (!known.includes(root)) writeFileSync(join(home, "projects.json"), JSON.stringify([...known, root], null, 2));
 }
 
-export const pagesDir = (root: string) => join(root, ".artt");
+export const pagesDir = (root: string) => join(root, ".artti");
 
 export function slugs(root: string) {
   const dir = pagesDir(root);

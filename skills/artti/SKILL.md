@@ -1,11 +1,11 @@
 ---
-name: artt
-description: Put work in front of the person as a page they answer on, instead of screenshots in a folder and paragraphs in the terminal — a verify page for finished work (screens, what was checked by running it, what was not), a board of options to pick from — then wait for their verdicts, picks and pinned comments to come back. Use whenever a task ends with something the person should look at or decide, when proposing more than one direction, and when the person says "artt", "show me", "let me pick", or "put it on a page".
+name: artti
+description: Put work in front of the person as a page they answer on, instead of screenshots in a folder and paragraphs in the terminal — a verify page for finished work (screens, what was checked by running it, what was not), a board of options to pick from — then wait for their verdicts, picks and pinned comments to come back. Use whenever a task ends with something the person should look at or decide, when proposing more than one direction, and when the person says "artti", "show me", "let me pick", or "put it on a page".
 ---
 
-# artt
+# artti
 
-`artt` makes pages in the project's `.artt/` directory and serves them at `http://localhost:7317`. The person answers on the page; `artt wait` returns their answer to you.
+`artti` makes pages in the project's `.artti/` directory and serves them at `http://localhost:7317`. The person answers on the page; `artti wait` returns their answer to you.
 
 ## Which page
 
@@ -18,14 +18,14 @@ description: Put work in front of the person as a page they answer on, instead o
 1. Write the body as JSON and create the page:
 
    ```bash
-   artt new verify --title "<what was done>" --body body.json
+   artti new verify --title "<what was done>" --body body.json
    ```
 
    It prints the page directory and its link. Put images in the page's `assets/` and refer to them as `assets/<file>`.
-2. Show it: `artt open` (opens the browser on the newest page), and tell the person the link.
-3. Wait in the background, so you stay free: `artt wait` (Claude Code: run it as a background command; you are notified when it exits). It prints each verdict, pick and comment, with comment ids, then `SUBMITTED` and any overall note.
-4. Act on it. Answer each comment where it was made: `artt reply --to <comment id> "<what you did>"`. Update `page.json` when the work changes; the open page refreshes by itself.
-5. When the person passes everything: `artt status passed`. If more rounds are needed, `artt wait` again.
+2. Show it: `artti open` (opens the browser on the newest page), and tell the person the link.
+3. Wait in the background, so you stay free: `artti wait` (Claude Code: run it as a background command; you are notified when it exits). It prints each verdict, pick and comment, with comment ids, then `SUBMITTED` and any overall note.
+4. Act on it. Answer each comment where it was made: `artti reply --to <comment id> "<what you did>"`. Update `page.json` when the work changes; the open page refreshes by itself.
+5. When the person passes everything: `artti status passed`. If more rounds are needed, `artti wait` again.
 
 ## verify body
 
@@ -56,4 +56,4 @@ description: Put work in front of the person as a page they answer on, instead o
 
 - Never answer on the person's behalf: no verdicts, picks or comments from you except `reply`. To rehearse the flow, make a throwaway page in a scratch directory.
 - Write page text in the person's language.
-- Images stay on this machine by default (`.artt/.gitignore` ignores `*/assets/`).
+- Images stay on this machine by default (`.artti/.gitignore` ignores `*/assets/`).

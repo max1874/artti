@@ -1,4 +1,4 @@
 node_modules/
 web/dist/
-.artt/**/assets/
+.artti/**/assets/
 .DS_Store
