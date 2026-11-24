@@ -54,7 +54,7 @@ function PageView({ project, slug }: { project: string; slug: string }) {
   if (!value) return null;
   return (
     <>
-      <header className="bar">
+      <header className="bar floating">
         <a href="/" onClick={e => { e.preventDefault(); go("/"); }}>artti</a>
         <span>{value.project.name}</span>
         <span className={`status ${value.page.status}`}>{statusNames[value.page.status] ?? value.page.status}</span>

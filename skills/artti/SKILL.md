@@ -5,7 +5,7 @@ description: Put work in front of the person as a page they answer on, instead o
 
 # artti
 
-`artti` makes pages in the project's `.artti/` directory and serves them at `http://localhost:7317`. The person answers on the page; `artti wait` returns their answer to you.
+`artti` makes pages in the project's `.artti/` directory and serves them at `http://localhost:7317` as an artboard: a canvas the person pans and zooms, with each screen or option as its own frame. The person answers on it; `artti wait` returns their answer to you.
 
 ## Which page
 
@@ -33,7 +33,7 @@ description: Put work in front of the person as a page they answer on, instead o
 {
   "summary": "One or two sentences: the result, in words the person could repeat.",
   "unverified": [{ "id": "android", "text": "What was not checked", "why": "Why not, and what would check it" }],
-  "screens": [{ "id": "home", "image": "assets/01.png", "before": "assets/01-before.png",
+  "screens": [{ "id": "home", "title": "Short frame name", "image": "assets/01.png", "before": "assets/01-before.png",
                 "scenario": "What was done to get here", "observed": "What the screen shows that matters",
                 "environment": "Device, build, data, URL" }],
   "claims": [{ "id": "api", "text": "What was checked by running something", "evidence": "the command and its raw output" }]

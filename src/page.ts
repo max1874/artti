@@ -17,6 +17,8 @@ export type Page = {
 /** A screen the work produced, as the person will see it. */
 export type Screen = {
   id: string;
+  /** The frame's name on the board. */
+  title?: string;
   image: string;
   /** What was done to get here. */
   scenario?: string;

@@ -1,8 +1,9 @@
-// Work is built; is it right? The screens it produced, what was checked by running something, and what was not.
+// Work is built; is it right? On the board: the report of what was and was not checked, then each screen as a frame,
+// a changed screen as its before and after side by side, each with its verdict.
 
 import { useState } from "react";
 import type { Loaded } from "./api.ts";
-import { Pinnable, SubmitBar, Thread, Verdicts, useCtx, verdictsOf } from "./parts.tsx";
+import { Canvas, type Ctx, Frame, Group, RoundBar, RowComments, Verdicts, useCtx, verdictsOf } from "./canvas.tsx";
 
 export function Verify({ data }: { data: Loaded }) {
   const ctx = useCtx(data);
@@ -10,76 +11,74 @@ export function Verify({ data }: { data: Loaded }) {
   const screens = page.screens ?? [];
   const claims = page.claims ?? [];
   const unverified = page.unverified ?? [];
-  const targets = [...screens.map(s => `screens/${s.id}`), ...claims.map(c => `claims/${c.id}`), ...unverified.map(u => `unverified/${u.id}`)];
+  const targets = [...unverified.map(u => `unverified/${u.id}`), ...screens.map(s => `screens/${s.id}`), ...claims.map(c => `claims/${c.id}`)];
   const decided = verdictsOf(data.events);
+  const count = targets.filter(t => decided.has(t)).length;
   return (
-    <main className="page verify">
-      <h1>{page.title}</h1>
-      {page.summary && <p className="summary">{page.summary}</p>}
-
-      {unverified.length > 0 && (
-        <section>
-          <h2>没验证到的<small>先看这里：这些没有证据</small></h2>
-          {unverified.map(item => (
-            <article key={item.id} className="item gap">
-              <div className="text">
-                <p>{item.text}</p>
-                {item.why && <p className="why">{item.why}</p>}
+    <Canvas ctx={ctx} bar={<RoundBar ctx={ctx} progress={`${count}/${targets.length} 已表态`} ready={count > 0} />}>
+      <Group chip="验收" title={page.title} note={page.summary}>
+        {(claims.length > 0 || unverified.length > 0) && <Report ctx={ctx} />}
+        {screens.map((screen, i) => {
+          const target = `screens/${screen.id}`;
+          const title = screen.title ?? `画面 ${i + 1}`;
+          const caption = (screen.observed || screen.scenario || screen.environment) && (
+            <>
+              {screen.observed && <p>{screen.observed}</p>}
+              {screen.scenario && <p className="muted">做了：{screen.scenario}</p>}
+              {screen.environment && <p className="muted">在：{screen.environment}</p>}
+            </>
+          );
+          const verdict = <Verdicts ctx={ctx} target={target} labels={["通过", "打回"]} />;
+          if (!screen.before) return <Frame key={screen.id} target={target} title={title} image={screen.image} actions={verdict} caption={caption} />;
+          return (
+            <div key={screen.id} className="pair">
+              <div className="pair-head"><span>{title}</span><span className="muted">改前 → 改后</span><span className="fill" />{verdict}</div>
+              <div className="pair-frames">
+                <Frame target={`${target}/before`} title="改前" image={screen.before} />
+                <Frame target={target} title="改后" image={screen.image} caption={caption} />
               </div>
-              <Verdicts ctx={ctx} target={`unverified/${item.id}`} labels={["接受", "要补上"]} />
-              <Thread ctx={ctx} target={`unverified/${item.id}`} />
-            </article>
-          ))}
-        </section>
-      )}
-
-      {screens.length > 0 && (
-        <section>
-          <h2>画面<small>点图上任意位置，就地评论</small></h2>
-          {screens.map((screen, i) => (
-            <article key={screen.id} className="item screen">
-              <div className={screen.before ? "pair" : "single"}>
-                {screen.before && (
-                  <div><span className="tag">改前</span><Pinnable ctx={ctx} target={`screens/${screen.id}/before`} src={screen.before} alt="改前" /></div>
-                )}
-                <div>{screen.before && <span className="tag">改后</span>}<Pinnable ctx={ctx} target={`screens/${screen.id}`} src={screen.image} alt={screen.observed ?? `画面 ${i + 1}`} /></div>
-              </div>
-              <dl className="caption">
-                {screen.scenario && <><dt>做了什么</dt><dd>{screen.scenario}</dd></>}
-                {screen.observed && <><dt>看到什么</dt><dd>{screen.observed}</dd></>}
-                {screen.environment && <><dt>在哪里</dt><dd>{screen.environment}</dd></>}
-              </dl>
-              <Verdicts ctx={ctx} target={`screens/${screen.id}`} labels={["通过", "打回"]} />
-              <Thread ctx={ctx} target={`screens/${screen.id}`} />
-              {screen.before && <Thread ctx={ctx} target={`screens/${screen.id}/before`} />}
-            </article>
-          ))}
-        </section>
-      )}
-
-      {claims.length > 0 && (
-        <section>
-          <h2>验证过的<small>每条都实际跑过</small></h2>
-          {claims.map(claim => <Claim key={claim.id} ctx={ctx} claim={claim} />)}
-        </section>
-      )}
-
-      <SubmitBar ctx={ctx} ready={targets.filter(t => decided.has(t)).length} total={targets.length} />
-    </main>
+            </div>
+          );
+        })}
+      </Group>
+    </Canvas>
   );
 }
 
-function Claim({ ctx, claim }: { ctx: ReturnType<typeof useCtx>; claim: { id: string; text: string; evidence?: string } }) {
+/** What could not be checked comes first: those items have no evidence. */
+function Report({ ctx }: { ctx: Ctx }) {
+  const { page } = ctx.data;
+  return (
+    <div className="frame report">
+      <header><span className="ftitle">验证报告</span></header>
+      <div className="report-body">
+        {(page.unverified?.length ?? 0) > 0 && <h3>没验证到的</h3>}
+        {page.unverified?.map(item => (
+          <div key={item.id} className="rrow gap">
+            <p className="rtext">{item.text}</p>
+            {item.why && <p className="muted">{item.why}</p>}
+            <div className="ractions"><Verdicts ctx={ctx} target={`unverified/${item.id}`} labels={["接受", "要补上"]} /></div>
+            <RowComments ctx={ctx} target={`unverified/${item.id}`} />
+          </div>
+        ))}
+        {(page.claims?.length ?? 0) > 0 && <h3>验证过的</h3>}
+        {page.claims?.map(claim => <ClaimRow key={claim.id} ctx={ctx} claim={claim} />)}
+      </div>
+    </div>
+  );
+}
+
+function ClaimRow({ ctx, claim }: { ctx: Ctx; claim: { id: string; text: string; evidence?: string } }) {
   const [showing, setShowing] = useState(false);
   return (
-    <article className="item claim">
-      <div className="text">
-        <p>{claim.text}</p>
-        {claim.evidence && <button className="quiet" onClick={() => setShowing(!showing)}>{showing ? "收起输出" : "看原始输出"}</button>}
-        {showing && <pre>{claim.evidence}</pre>}
+    <div className="rrow">
+      <p className="rtext">{claim.text}</p>
+      <div className="ractions">
+        <Verdicts ctx={ctx} target={`claims/${claim.id}`} labels={["通过", "不信"]} />
+        {claim.evidence && <button className="quiet" onClick={() => setShowing(!showing)}>{showing ? "收起输出" : "原始输出"}</button>}
       </div>
-      <Verdicts ctx={ctx} target={`claims/${claim.id}`} labels={["通过", "不信"]} />
-      <Thread ctx={ctx} target={`claims/${claim.id}`} />
-    </article>
+      {showing && <pre>{claim.evidence}</pre>}
+      <RowComments ctx={ctx} target={`claims/${claim.id}`} />
+    </div>
   );
 }
