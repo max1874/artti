@@ -50,9 +50,12 @@ export type Event = {
   at: number;
   by: "human" | "agent";
   kind: Kind;
-  /** The item, option or sentence it is about, e.g. "screens/s2"; a comment may add a spot on it. */
+  /** What it is about, e.g. "screens/mac-chat/v5", or "board" for a note anywhere on the board. */
   target?: string;
-  spot?: { x: number; y: number };
+  /** Where a comment is: on a frame, a point or an area (w, h) as fractions of it; on the board, its pixels. */
+  spot?: { x: number; y: number; w?: number; h?: number };
+  /** A comment's picture of the spot it marks, cut from the image: a path inside `.artti/`. */
+  crop?: string;
   text?: string;
   /** A verdict's value, or the option picked. */
   value?: string;

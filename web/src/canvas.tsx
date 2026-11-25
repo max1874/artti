@@ -1,6 +1,6 @@
-// The artboard: a canvas you pan and zoom, frames on it, pins on the frames, and the bar that sends the round back.
+// The artboard: a canvas you pan and zoom, frames on it, marks anywhere on it, and the bar that sends the round back.
 
-import { Fragment, createContext, type ReactNode, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, createContext, type PointerEvent, type ReactNode, type RefObject, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { type Event, type Loaded, type Screen, ago, file, say } from "./api.ts";
 
 export type Tool = "move" | "comment";
@@ -9,7 +9,14 @@ type Camera = { x: number; y: number; z: number };
 export type Ctx = { data: Loaded; send: (event: Partial<Event>) => Promise<void> };
 export const useCtx = (data: Loaded): Ctx => ({ data, send: async event => { await say(data.project.id, data.slug, event); } });
 
-const Board = createContext<{ tool: Tool; z: number; ctx: Ctx }>(null!);
+type Spot = NonNullable<Event["spot"]>;
+/** The comment being written: where, and whether the mark is still being dragged out. One at a time on the whole board. */
+type Draft = { target: string; spot: Spot; marking?: boolean };
+
+const Board = createContext<{
+  tool: Tool; z: number; ctx: Ctx;
+  draft?: Draft; setDraft: (draft?: Draft) => void; open?: string; setOpen: (id?: string) => void;
+}>(null!);
 
 /** The current verdict per target; pressing the chosen one again takes it back. */
 export function verdictsOf(events: Event[]) {
@@ -30,6 +37,8 @@ export function Canvas({ ctx, children, bar, readOnly }: { ctx: Ctx; children: R
   const world = useRef<HTMLDivElement>(null);
   const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, z: 1 });
   const [tool, setTool] = useState<Tool>("move");
+  const [draft, setDraft] = useState<Draft>();
+  const [open, setOpen] = useState<string>();
   // Until the person moves the camera, it keeps the whole board in view as images arrive.
   const touched = useRef(false);
 
@@ -69,7 +78,7 @@ export function Canvas({ ctx, children, bar, readOnly }: { ctx: Ctx; children: R
       if (event.key === "v") setTool("move");
       if (event.key === "c" && !readOnly) setTool("comment");
       if (event.key === "0" || (event.key === "1" && event.shiftKey)) { touched.current = false; fit(); }
-      if (event.key === "Escape") setTool("move");
+      if (event.key === "Escape") { setDraft(undefined); setTool("move"); }
     };
     element.addEventListener("wheel", wheel, { passive: false });
     addEventListener("keydown", key);
@@ -78,10 +87,19 @@ export function Canvas({ ctx, children, bar, readOnly }: { ctx: Ctx; children: R
 
   const drag = useRef<{ x: number; y: number } | null>(null);
   return (
-    <Board.Provider value={{ tool, z: camera.z, ctx }}>
+    <Board.Provider value={{ tool, z: camera.z, ctx, draft, setDraft, open, setOpen }}>
       <div ref={viewport} className={`viewport ${tool}`}
         onPointerDown={event => {
-          if (interactive(event.target) || (tool === "comment" && (event.target as Element).closest(".fbody"))) return;
+          if (interactive(event.target)) return;
+          if (tool === "comment") {
+            // On a screen, the frame takes it; anywhere else, a note on the board itself.
+            if ((event.target as Element).closest(".fbody")) return;
+            const box = viewport.current!.getBoundingClientRect();
+            setOpen(undefined);
+            // Written once the button is up: a box focused on the press loses focus to the release.
+            setDraft({ target: "board", spot: { x: (event.clientX - box.left - camera.x) / camera.z, y: (event.clientY - box.top - camera.y) / camera.z }, marking: true });
+            return;
+          }
           drag.current = { x: event.clientX, y: event.clientY };
           viewport.current!.setPointerCapture(event.pointerId);
         }}
@@ -92,14 +110,18 @@ export function Canvas({ ctx, children, bar, readOnly }: { ctx: Ctx; children: R
           touched.current = true;
           setCamera(c => ({ ...c, x: c.x + dx, y: c.y + dy }));
         }}
-        onPointerUp={() => { drag.current = null; }}>
+        onPointerUp={() => {
+          drag.current = null;
+          if (draft?.target === "board" && draft.marking) setDraft({ target: "board", spot: draft.spot });
+        }}>
         <div ref={world} className="world" style={{ transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.z})` }}>
           {children}
+          <Pins target="board" px />
         </div>
       </div>
       <div className="tools">
         <button className={tool === "move" ? "on" : ""} title="移动（V）" onClick={() => setTool("move")}>移动</button>
-        {!readOnly && <button className={tool === "comment" ? "on" : ""} title="点在画板上评论（C）" onClick={() => setTool("comment")}>评论</button>}
+        {!readOnly && <button className={tool === "comment" ? "on" : ""} title="点一下或拖一个框，说这里怎么改（C）" onClick={() => setTool("comment")}>评论</button>}
         <button title="整块放进屏幕（0）" onClick={() => { touched.current = false; fit(); }}>{Math.round(camera.z * 100)}%</button>
       </div>
       {bar}
@@ -122,18 +144,24 @@ export function Group({ chip, title, note, actions, rows, children }: { chip: st
   );
 }
 
-/** One frame: a header, an image or a page (both as URLs), pins on it. */
+/** One frame: a header, an image or a page (both as URLs), and the marks on it. */
 export function Frame({ target, title, lead, badge, actions, image, html, caption, selected }: {
   target: string; title: string; lead?: ReactNode; badge?: ReactNode; actions?: ReactNode;
   image?: string; html?: string; caption?: ReactNode; selected?: boolean;
 }) {
-  const { tool, z, ctx } = useContext(Board);
+  const { tool, setDraft, setOpen } = useContext(Board);
   const [width, setWidth] = useState(640);
-  const [draft, setDraft] = useState<{ x: number; y: number }>();
-  const [open, setOpen] = useState<string>();
   const [expanded, setExpanded] = useState(false);
+  const body = useRef<HTMLDivElement>(null);
+  const picture = useRef<HTMLImageElement>(null);
+  const start = useRef<{ x: number; y: number }>(null);
   const src = image ?? html;
-  const pins = ctx.data.events.filter(e => e.kind === "comment" && e.target === target && e.spot);
+  const at = (event: PointerEvent) => {
+    const box = body.current!.getBoundingClientRect();
+    return { x: clamp((event.clientX - box.left) / box.width, 0, 1), y: clamp((event.clientY - box.top) / box.height, 0, 1) };
+  };
+  const span = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+    ({ x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) });
   return (
     <div className={`frame${selected ? " selected" : ""}`} style={{ width }}>
       <header>
@@ -145,32 +173,27 @@ export function Frame({ target, title, lead, badge, actions, image, html, captio
         {src && <button className="icon" title="放大" onClick={() => setExpanded(true)}>⤢</button>}
         {src && <a className="icon" title="下载" href={src} download>↓</a>}
       </header>
-      <div className="fbody"
-        onClick={event => {
+      <div ref={body} className="fbody"
+        onPointerDown={event => {
           if (tool !== "comment" || interactive(event.target)) return;
-          const box = event.currentTarget.getBoundingClientRect();
+          event.currentTarget.setPointerCapture(event.pointerId);
+          start.current = at(event);
           setOpen(undefined);
-          setDraft({ x: (event.clientX - box.left) / box.width, y: (event.clientY - box.top) / box.height });
+          setDraft({ target, spot: start.current, marking: true });
+        }}
+        onPointerMove={event => { if (start.current) setDraft({ target, spot: span(start.current, at(event)), marking: true }); }}
+        onPointerUp={event => {
+          const from = start.current;
+          if (!from) return;
+          start.current = null;
+          const box = span(from, at(event));
+          const shown = body.current!.getBoundingClientRect();
+          // A drag marks an area; a click, a point.
+          setDraft({ target, spot: box.w * shown.width > 8 || box.h * shown.height > 8 ? box : from });
         }}>
-        {image && <img src={src} alt={title} draggable={false} onLoad={e => setWidth(clamp(e.currentTarget.naturalWidth / 2, 280, 900))} />}
+        {image && <img ref={picture} src={src} alt={title} draggable={false} onLoad={e => setWidth(clamp(e.currentTarget.naturalWidth / 2, 280, 900))} />}
         {html && <iframe src={src} title={title} sandbox="allow-scripts" style={{ pointerEvents: tool === "comment" ? "none" : "auto" }} />}
-        {pins.map((pin, i) => (
-          <button key={pin.id} className="pin" style={{ left: `${pin.spot!.x * 100}%`, top: `${pin.spot!.y * 100}%`, transform: `translate(-50%, -50%) scale(${1 / z})` }}
-            onClick={() => { setDraft(undefined); setOpen(open === pin.id ? undefined : pin.id); }}>{i + 1}</button>
-        ))}
-        {draft && <span className="pin draft" style={{ left: `${draft.x * 100}%`, top: `${draft.y * 100}%`, transform: `translate(-50%, -50%) scale(${1 / z})` }}>{pins.length + 1}</span>}
-        {draft && (
-          <Popover spot={draft} z={z}>
-            <CommentBox placeholder="这里怎么了…" autoFocus onCancel={() => setDraft(undefined)}
-              onSend={async text => { await ctx.send({ kind: "comment", target, spot: draft, text }); setDraft(undefined); }} />
-          </Popover>
-        )}
-        {open && pins.some(p => p.id === open) && (
-          <Popover spot={pins.find(p => p.id === open)!.spot!} z={z}>
-            <Conversation ctx={ctx} comment={pins.find(p => p.id === open)!} />
-            <button className="quiet close" onClick={() => setOpen(undefined)}>关闭</button>
-          </Popover>
-        )}
+        <Pins target={target} picture={image ? picture : undefined} />
       </div>
       {caption && <div className="fcaption">{caption}</div>}
       {expanded && src && (
@@ -182,14 +205,83 @@ export function Frame({ target, title, lead, badge, actions, image, html, captio
   );
 }
 
-/** Kept at reading size whatever the zoom, next to the spot it is about. */
-function Popover({ spot, z, children }: { spot: { x: number; y: number }; z: number; children: ReactNode }) {
+/** On a frame a spot is a fraction of it; on the board, pixels of the board. */
+const pos = (value: number, px?: boolean) => px ? `${value}px` : `${value * 100}%`;
+
+/** The comments marked on one target, the one being written, and the open one's conversation. */
+function Pins({ target, px, picture }: { target: string; px?: boolean; picture?: RefObject<HTMLImageElement | null> }) {
+  const { z, ctx, draft, setDraft, open, setOpen } = useContext(Board);
+  const pins = ctx.data.events.filter(e => e.kind === "comment" && e.target === target && e.spot);
+  const mine = draft?.target === target ? draft : undefined;
+  const shown = pins.find(pin => pin.id === open);
   return (
-    <div className="popover" style={{ left: `${spot.x * 100}%`, top: `${spot.y * 100}%`, transform: `translate(16px, -12px) scale(${1 / z})` }}
+    <>
+      {pins.map((pin, i) => (
+        <Mark key={pin.id} spot={pin.spot!} n={i + 1} z={z} px={px} onClick={() => { setDraft(undefined); setOpen(open === pin.id ? undefined : pin.id); }} />
+      ))}
+      {mine && <Mark spot={mine.spot} n={pins.length + 1} z={z} px={px} draft />}
+      {mine && !mine.marking && (
+        <Popover spot={mine.spot} z={z} px={px}>
+          <CommentBox placeholder={mine.spot.w ? "这块怎么改…" : "这里怎么改…"} autoFocus onCancel={() => setDraft(undefined)}
+            onSend={async text => {
+              await ctx.send({ kind: "comment", target, spot: mine.spot, text, crop: picture?.current ? cropOf(picture.current, mine.spot) : undefined });
+              setDraft(undefined);
+            }} />
+        </Popover>
+      )}
+      {shown && (
+        <Popover spot={shown.spot!} z={z} px={px}>
+          <Conversation ctx={ctx} comment={shown} />
+          <button className="quiet close" onClick={() => setOpen(undefined)}>关闭</button>
+        </Popover>
+      )}
+    </>
+  );
+}
+
+/** A numbered pin at a point, or at the corner of the area it marks. */
+function Mark({ spot, n, z, px, draft, onClick }: { spot: Spot; n: number; z: number; px?: boolean; draft?: boolean; onClick?: () => void }) {
+  return (
+    <>
+      {spot.w !== undefined && <span className={`mark${draft ? " draft" : ""}`}
+        style={{ left: pos(spot.x, px), top: pos(spot.y, px), width: pos(spot.w, px), height: pos(spot.h ?? 0, px), borderWidth: 2 / z }} />}
+      <button className={`pin${draft ? " draft" : ""}`} onClick={onClick}
+        style={{ left: pos(spot.x, px), top: pos(spot.y, px), transform: `translate(-50%, -50%) scale(${1 / z})` }}>{n}</button>
+    </>
+  );
+}
+
+/** Kept at reading size whatever the zoom, beside the spot it is about. */
+function Popover({ spot, z, px, children }: { spot: Spot; z: number; px?: boolean; children: ReactNode }) {
+  return (
+    <div className="popover" style={{ left: pos(spot.x + (spot.w ?? 0), px), top: pos(spot.y, px), transform: `translate(16px, -12px) scale(${1 / z})` }}
       onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
       {children}
     </div>
   );
+}
+
+/** The marked spot cut out of the image with some of what surrounds it, the mark drawn on: what the agent looks at. */
+function cropOf(image: HTMLImageElement, spot: Spot) {
+  const W = image.naturalWidth, H = image.naturalHeight;
+  const x = spot.x * W, y = spot.y * H, w = (spot.w ?? 0) * W, h = (spot.h ?? 0) * H;
+  // A point says little on its own: show more around it than around an area.
+  const pad = w || h ? Math.max(w, h) * 0.4 + W * 0.08 : W * 0.18;
+  const left = clamp(x - pad, 0, W), top = clamp(y - pad, 0, H);
+  const canvas = document.createElement("canvas");
+  canvas.width = clamp(x + w + pad, 0, W) - left;
+  canvas.height = clamp(y + h + pad, 0, H) - top;
+  const g = canvas.getContext("2d")!;
+  g.drawImage(image, left, top, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
+  g.strokeStyle = "#e5484d";
+  g.lineWidth = Math.max(3, W / 500);
+  if (w) g.strokeRect(x - left, y - top, w, h);
+  else {
+    g.beginPath();
+    g.arc(x - left, y - top, W / 70, 0, Math.PI * 2);
+    g.stroke();
+  }
+  return canvas.toDataURL("image/png");
 }
 
 function Conversation({ ctx, comment }: { ctx: Ctx; comment: Event }) {

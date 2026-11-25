@@ -35,7 +35,10 @@ description: Put work in front of the person as a page they answer on, instead o
    The page shows each listed screen as a row of its versions, the newest marked; `unverified` is a note beside them.
 3. Show it: `artti open`, and tell the person the link.
 4. Wait in the background, so you stay free: `artti wait` (Claude Code: run it as a background command; you are notified
-   when it exits). It prints each verdict, pick and pinned comment with its id, then `SUBMITTED` and any overall note.
+   when it exits). It prints each verdict, pick and comment with its id, then `SUBMITTED` and any overall note. The person
+   marks a comment anywhere: a point or a dragged area on a screen, or a note on the empty board. A comment on a screen
+   comes with `the marked spot:` (that part of the image, cut out, the mark drawn in red) and `the whole screen:`; open
+   both before deciding what to change, because the words alone ("这里太挤") only make sense against the picture.
 5. Act on it, then answer each comment where it was made: `artti reply --to <comment id> "<what you did>"`. A new capture
    is a new `artti shot` and, for another round, a new `artti new verify`.
 6. When the person passes everything: `artti status passed`.

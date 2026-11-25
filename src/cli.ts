@@ -79,27 +79,44 @@ async function server() {
 
 const link = async (slug: string) => `http://localhost:${await server()}/p/${projectId(root)}/${encodeURIComponent(slug)}`;
 
+/** The screen a target names, and the version: the one named, or the newest. */
+function screenOf(target?: string) {
+  const [kind, id, version] = target?.split("/") ?? [];
+  if (kind !== "screens") return;
+  const found = screen(root, id!);
+  return found && { screen: found, version: version ? found.versions.find(v => `v${v.n}` === version) : found.versions.at(-1) };
+}
+
 /** What an event is about, in the page's own words. */
 function about(page: Page, target?: string) {
   if (!target) return "the page";
-  const [kind, id, version] = target.split("/");
-  if (kind === "screens") {
-    const found = screen(root, id!);
-    const v = version ? found?.versions.find(v => `v${v.n}` === version) : found?.versions.at(-1);
-    return `${target} “${found?.title ?? id}${v ? ` v${v.n}${v.label ? ` ${v.label}` : ""}` : ""}”`;
-  }
+  if (target === "board") return "the board";
+  const [kind, id] = target.split("/");
+  const shown = screenOf(target);
+  if (shown) return `${target} “${shown.screen.title}${shown.version ? ` v${shown.version.n}${shown.version.label ? ` ${shown.version.label}` : ""}` : ""}”`;
   const item = kind === "unverified" ? page.unverified?.find(u => u.id === id)
     : kind === "options" ? page.options?.find(o => o.id === id) : undefined;
   const words = item && ("text" in item ? item.text : item.title);
   return words ? `${target} “${String(words).slice(0, 60)}”` : target;
 }
 
+/** Where on its target a comment was marked, and the pictures to look at for it. */
+function where({ target, spot, crop }: Event) {
+  if (!spot || target === "board") return "";
+  const pc = (value: number) => `${Math.round(value * 100)}%`;
+  const image = screenOf(target)?.version?.image;
+  return (spot.w !== undefined ? ` in the area (${pc(spot.x)}, ${pc(spot.y)})–(${pc(spot.x + spot.w)}, ${pc(spot.y + (spot.h ?? 0))})` : ` at (${pc(spot.x)}, ${pc(spot.y)})`) +
+    (crop ? `\n  the marked spot: ${join(pagesDir(root), crop)}` : "") + (image ? `\n  the whole screen: ${join(pagesDir(root), image)}` : "");
+}
+
 function describe(page: Page, event: Event) {
-  const spot = event.spot ? ` at (${Math.round(event.spot.x * 100)}%, ${Math.round(event.spot.y * 100)}%)` : "";
   switch (event.kind) {
     case "verdict": return `${{ pass: "PASS", reject: "REJECT", waive: "WAIVE" }[event.value ?? ""] ?? "TOOK BACK VERDICT ON"} ${about(page, event.target)}`;
     case "pick": return event.target ? `PICKED ${about(page, event.target)}` : "UNPICKED";
-    case "comment": return `COMMENT [${event.id}] on ${about(page, event.target)}${spot}: ${event.text}`;
+    case "comment": {
+      const [first, ...pictures] = where(event).split("\n");
+      return [`COMMENT [${event.id}] on ${about(page, event.target)}${first}: ${event.text}`, ...pictures].join("\n");
+    }
     case "reply": return `REPLY to ${event.to}: ${event.text}`;
     case "submit": return `SUBMITTED${event.text ? `: ${event.text}` : ""}`;
   }

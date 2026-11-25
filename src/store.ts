@@ -150,3 +150,11 @@ export function shot(root: string, id: string, file: string, details: { title?: 
   remember(root);
   return version;
 }
+
+/** A picture cut out by the person's mark, kept with the page's images; its path inside `.artti/`. */
+export function keep(root: string, slug: string, png: Buffer) {
+  const path = `${safe(slug)}/assets/notes/${randomBytes(4).toString("hex")}.png`;
+  mkdirSync(dirname(join(pagesDir(root), path)), { recursive: true });
+  writeFileSync(join(pagesDir(root), path), png);
+  return path;
+}

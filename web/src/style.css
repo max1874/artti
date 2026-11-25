@@ -86,7 +86,7 @@ p { margin: 0; }
   cursor: grab;
 }
 .viewport:active { cursor: grabbing; }
-.viewport.comment .fbody { cursor: crosshair; }
+.viewport.comment, .viewport.comment .fbody { cursor: crosshair; }
 .world { position: absolute; left: 0; top: 0; transform-origin: 0 0; padding: 8px; width: max-content; }
 
 .group > header { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
@@ -147,6 +147,8 @@ p { margin: 0; }
   box-shadow: 0 0 0 2px white, 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 .pin.draft { opacity: 0.7; pointer-events: none; }
+.mark { position: absolute; z-index: 1; border: solid var(--pin); border-radius: 4px; background: color-mix(in srgb, var(--pin) 8%, transparent); pointer-events: none; }
+.mark.draft { border-style: dashed; }
 .popover {
   position: absolute; z-index: 3; transform-origin: 0 0; width: 300px; line-height: 1.55;
   background: var(--frame); border-radius: 12px; box-shadow: 0 0 0 1px var(--line), 0 12px 32px rgba(0, 0, 0, 0.18);

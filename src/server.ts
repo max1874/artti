@@ -5,7 +5,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Event } from "./page.ts";
-import { append, home, label, pagesDir, projectId, projects, read, safe, screen, screens, slugs } from "./store.ts";
+import { append, home, keep, label, pagesDir, projectId, projects, read, safe, screen, screens, slugs } from "./store.ts";
 
 export const defaultPort = 7317;
 const web = fileURLToPath(new URL("../web/dist/", import.meta.url));
@@ -57,7 +57,7 @@ async function body(request: IncomingMessage) {
   let text = "";
   for await (const chunk of request) {
     text += chunk;
-    if (text.length > 1 << 20) throw new Error("too large");
+    if (text.length > 1 << 24) throw new Error("too large");
   }
   return JSON.parse(text) as Partial<Event>;
 }
@@ -114,7 +114,10 @@ export function serve(port = defaultPort) {
             const event = await body(request);
             if (!["comment", "pick", "verdict", "submit"].includes(event.kind ?? "")) return send(response, 400, { error: "unknown kind" });
             const { kind, target, spot, text, value, to } = event;
-            return send(response, 200, append(root, slug, { by: "human", kind: kind!, target, spot, text, value, to }));
+            // A comment's picture of its spot arrives as a PNG data URL and is kept as a file.
+            const png = "data:image/png;base64,";
+            const crop = kind === "comment" && event.crop?.startsWith(png) ? keep(root, slug, Buffer.from(event.crop.slice(png.length), "base64")) : undefined;
+            return send(response, 200, append(root, slug, { by: "human", kind: kind!, target, spot, text, value, to, crop }));
           }
           const { page, events } = read(root, slug);
           // A verify page shows its screens with their whole history.
