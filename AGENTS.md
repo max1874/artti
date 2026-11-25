@@ -12,6 +12,7 @@ The outcome to observe: a person's pick, comment or verdict made on a page reach
 
 - Its own repository, its own name: `artti` (Max picked it over the first proposal `artt`; `ark` collides with Huawei ArkUI and Volcengine Ark; `crit` is taken by a near-identical tool, crit.md).
 - All six page types from Ryugi's set: board, doc, whiteboard, bench, deck, verify. Original design, nothing copied from Ryugi; its app is proprietary.
+- The whiteboard matches Claude's Whiteboard in full (Max, 2026-11-25: "全面对标 claude 的白板功能"). He chose this over narrowing artti to verify and board once Claude's own Docs, Whiteboard and Slides existed. What Whiteboard does is in docs/claude-artifacts.md.
 - Where images live is the user's choice, not artti's: local, git, or an image host, behind one storage interface ("那是使用者需要考虑的？也可以支持图床，也可以支持纯本地，也可以支持 git").
 - The tool reaches agents as a command-line program plus a skill, never an MCP server or a hook (Max's global rule). The long-running local part is a Swift macOS app (global rule); the pages are web, so they render in the app, a browser and a phone alike.
 
