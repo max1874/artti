@@ -25,3 +25,14 @@ Limits: Claude Code only, and only on the Anthropic API (not Bedrock, Vertex or 
 3. **HTML frames:** comments cannot be anchored to an element, nothing can be edited in place, and no picture is cut out. Design does all three.
 4. **No notification** when the agent has replied or a new round is ready.
 5. **Of the six planned types, only `verify` and `board` exist.** Docs, Slides, Sheets, Whiteboard and Data already exist as artifact types.
+
+## Whiteboard (beta since 2026-11-10)
+
+A shared infinite canvas on web, desktop and mobile. It holds blocks, arrows, sections, tables, pen strokes, images, SVG drawings Claude makes, and working HTML embeds that keep what people enter. It shows live cursors, and face stickers count as votes. Claude writes element by element into the board's live store and never rebuilds the board. A "claim" frame shows everyone where Claude is working. Each message carries what the person has selected, has in view, or has pinned an open comment to, so "this box" resolves to an element. Comments are pinned to elements. Claude can ask an open question on the board with its guess shown grey under it; anyone can type over the guess, and Claude builds on the guess meanwhile. (Read from the Whiteboard type's own instructions.)
+
+For artti this means:
+- **artti's planned `whiteboard` type** would duplicate Whiteboard.
+- **Ideas worth taking:**
+  - Show where the agent is working while it works.
+  - Turn `unverified` into on-page questions that carry the agent's guess and that the person can overwrite.
+  - Resolve "this one" from what the person has selected or in view.
