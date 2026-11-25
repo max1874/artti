@@ -4,6 +4,7 @@ import { type Library as LibraryData, type Loaded, ago, useLive } from "./api.ts
 import { Verify } from "./Verify.tsx";
 import { Board } from "./Board.tsx";
 import { Screens } from "./Screens.tsx";
+import { Whiteboard } from "./whiteboard/Whiteboard.tsx";
 import "./style.css";
 
 const typeNames: Record<string, string> = { verify: "验收", board: "方案", doc: "文档", whiteboard: "白板", bench: "调参", deck: "幻灯片" };
@@ -67,6 +68,7 @@ function PageView({ project, slug }: { project: string; slug: string }) {
       </header>
       {value.page.type === "verify" ? <Verify data={value} />
         : value.page.type === "board" ? <Board data={value} />
+        : value.page.type === "whiteboard" ? <Whiteboard data={value} />
         : <p className="empty">「{typeNames[value.page.type]}」还没做好。</p>}
     </>
   );

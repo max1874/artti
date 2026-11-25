@@ -6,7 +6,8 @@ import { existsSync, readFileSync, writeFileSync, watch } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { type Event, type Page, type Status, type Type, types } from "./page.ts";
-import { append, create, home, latest, pagesDir, projectId, projectRoot, read, screen, shot, slugs, update } from "./store.ts";
+import { append, board, create, home, latest, pagesDir, projectId, projectRoot, read, screen, shot, slugs, update } from "./store.ts";
+import type { Op } from "./board.ts";
 import { defaultPort, serve } from "./server.ts";
 
 const usage = `artti — pages an agent puts its work on; the person answers on them.
@@ -15,6 +16,9 @@ const usage = `artti — pages an agent puts its work on; the person answers on 
                                                          add a version of a screen (ids: letters, digits, - and _)
   artti new <type> --title <title> [--body <file.json|->] make a page (${types.join(", ")}); "-" reads the body from stdin
                    [--screens <id,id>]                   verify: the screens whose newest version is under review
+  artti board get [page]                                  a whiteboard's elements, order and claims, as JSON
+  artti board write [page] --ops <file.json|->            apply a list of ops, all or none; see the skill for their shape
+  artti board claim [page] --at <x,y,w,h> | --done        show where you are at work, or that you are done
   artti open [page]                                       show it in the browser
   artti url [page]                                        print its link
   artti wait [page] [--timeout <seconds>]                 block until the person submits, then print what they said
@@ -30,7 +34,7 @@ const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
     title: { type: "string" }, body: { type: "string" }, screens: { type: "string" }, label: { type: "string" }, note: { type: "string" }, at: { type: "string" }, timeout: { type: "string" }, to: { type: "string" },
-    port: { type: "string" }, help: { type: "boolean", short: "h" },
+    port: { type: "string" }, ops: { type: "string" }, done: { type: "boolean" }, help: { type: "boolean", short: "h" },
   },
 });
 const [command, ...rest] = positionals;
@@ -175,6 +179,24 @@ async function main() {
       if (at !== undefined && Number.isNaN(at)) fail(`--at is not a date: ${values.at}`);
       const version = shot(root, id, file, { title: values.title, label: values.label, note: values.note, at });
       return console.log(`${id} v${version.n}${version.commit ? ` (${version.commit})` : ""}`);
+    }
+    case "board": {
+      const [action, name] = rest;
+      const slug = resolvePage(name);
+      if (action === "get") return console.log(JSON.stringify(read(root, slug).page.type === "whiteboard" ? board(root, slug) : fail(`${slug} is not a whiteboard`), null, 1));
+      const ops: Op[] = action === "write"
+        ? JSON.parse(values.ops === "-" ? readFileSync(0, "utf8") : values.ops ? readFileSync(values.ops, "utf8") : fail("--ops <file.json|-> is required"))
+        : action === "claim"
+          ? [{ op: "claim", id: "agent", data: values.done ? {} : (([x, y, w, h]) => ({ x, y, w, h }))((values.at ?? fail("--at x,y,w,h or --done")).split(",").map(Number)) }]
+          : fail("usage: artti board get|write|claim [page]");
+      // Through the server, the board's one writer.
+      const response = await fetch(`http://127.0.0.1:${await server()}/api/board/${projectId(root)}/${encodeURIComponent(slug)}`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ops }),
+      });
+      const result = await response.json() as { error?: string; v?: number; versions?: Record<string, number> };
+      if (!response.ok) fail(result.error ?? response.statusText);
+      if (action === "write") console.log(JSON.stringify(result));
+      return;
     }
     case "open": {
       const url = await link(resolvePage(rest[0]));

@@ -45,6 +45,46 @@ description: Put work in front of the person as a page they answer on, instead o
 
 Evidence that is not a screen (commands run, their output) goes in your report in the terminal, not on the page.
 
+## Whiteboards
+
+For thinking laid out rather than work to approve: a plan, a flow, a map, a brainstorm. `artti new whiteboard --title "<name>"`,
+then write to it. The person edits the same board in the browser at the same time.
+
+```bash
+artti board claim --at=0,0,1200,600       # first: a frame shows where you are about to work (x,y,w,h)
+artti board write --ops ops.json          # all or none; prints each element's new version
+artti board claim --done                  # last
+artti board get                           # elements (each with its version v and who wrote it), order, claims
+```
+
+`ops.json` is a list:
+
+```jsonc
+[{ "op": "set", "id": "e1", "data": { "type": "text", "x": 0, "y": -80, "text": "Launch plan", "size": "title" } },
+ { "op": "update", "id": "e4", "data": { "color": "blue", "note": null }, "ifVersion": 3 },   // null removes a field
+ { "op": "delete", "id": "e7", "ifVersion": 1 },
+ { "op": "meta", "data": { "title": "…", "order": ["e3", "e1"] } }]                           // order: back to front
+```
+
+- **Pin every change to an element that exists** with `ifVersion`, the `v` you last read. A write over a newer version is refused, with nothing written: read again and redo the write, because the person may have just moved or retyped it. New ids are `e1`, `e2`… above the board's highest.
+- **Elements:**
+
+  | Type | Fields |
+  |---|---|
+  | `shape` | `kind`: rounded, rect, ellipse, diamond, pill, hexagon, parallelogram, database, queue, document, cloud or person. `x y w h`, `text`, `color`, `size`, `stroke`, `hollow`, `textAlign`. |
+  | `container` | A section: `x y w h`, `text` (its title, drawn 28 above the box), `color`. Write it before what it holds; it goes behind. |
+  | `text` | `x y`, `text`, `size`, `wrap` (a width), `color`, `textAlign`, `placeholder` (a grey guess for the person to type over). |
+  | `note` | The person's sticky notes. Read them; don't make them. |
+  | `image` | `x y w h`, `src`. |
+
+- **Values:**
+  - Sizes: small 14, body 16, large 28, title 48, huge 96.
+  - Fills: yellow, peach, pink, green, blue, purple, white.
+  - Inks: ink, terracotta, blue, green, purple.
+  - Any `#rrggbb` works for either.
+  - `text` may use `**bold**`, `*italic*`, `` `code` ``, `[label](https://…)` and lines starting `- ` or `1. `.
+- **Lay out from one thing outward:** leave 24 between neighbours, give the whole the shape the idea has (a line, a loop, a tree, lanes), and lead with a title and one sentence. Never rebuild a board: change only what changes, and leave what the person placed where they put it.
+
 ## board body
 
 ```json

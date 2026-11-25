@@ -5,7 +5,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Event } from "./page.ts";
-import { append, home, keep, label, pagesDir, projectId, projects, read, safe, screen, screens, slugs } from "./store.ts";
+import { Conflict, type Op } from "./board.ts";
+import { append, board, home, keep, label, write, pagesDir, projectId, projects, read, safe, screen, screens, slugs } from "./store.ts";
 
 export const defaultPort = 7317;
 const web = fileURLToPath(new URL("../web/dist/", import.meta.url));
@@ -53,13 +54,13 @@ function inside(base: string, path: string) {
   return full;
 }
 
-async function body(request: IncomingMessage) {
+async function body<T = Partial<Event>>(request: IncomingMessage) {
   let text = "";
   for await (const chunk of request) {
     text += chunk;
     if (text.length > 1 << 24) throw new Error("too large");
   }
-  return JSON.parse(text) as Partial<Event>;
+  return JSON.parse(text) as T;
 }
 
 export function serve(port = defaultPort) {
@@ -106,6 +107,21 @@ export function serve(port = defaultPort) {
           if (!root) return send(response, 404, { error: "no such project" });
           return send(response, 200, { project: { id: parts[2], name: label(root) }, screens: screens(root) });
         }
+        // A whiteboard's writes. The browser sends an Origin; the CLI, writing for the agent, does not.
+        if (parts[1] === "board" && parts.length === 4 && request.method === "POST") {
+          const root = rootOf(parts[2]!);
+          if (!root) return send(response, 404, { error: "no such project" });
+          const { ops } = await body<{ ops: Op[] }>(request);
+          if (!Array.isArray(ops)) return send(response, 400, { error: "send { ops: [...] }" });
+          try {
+            const next = write(root, safe(parts[3]!), ops, origin ? "human" : "agent");
+            const touched = ops.flatMap(op => "id" in op && next.elements[op.id] ? [[op.id, next.elements[op.id]!.v]] : []);
+            return send(response, 200, { v: next.v, versions: Object.fromEntries(touched) });
+          } catch (error) {
+            if (error instanceof Conflict) return send(response, 409, { error: error.message, id: error.id, current: error.current });
+            throw error;
+          }
+        }
         if (parts[1] === "page" && parts.length === 4) {
           const root = rootOf(parts[2]!);
           if (!root) return send(response, 404, { error: "no such project" });
@@ -122,7 +138,8 @@ export function serve(port = defaultPort) {
           const { page, events } = read(root, slug);
           // A verify page shows its screens with their whole history.
           const shown = page.type === "verify" ? (page.screens ?? []).flatMap(id => screen(root, id) ?? []) : [];
-          return send(response, 200, { project: { id: parts[2], name: label(root) }, slug, page, events, screens: shown });
+          return send(response, 200, { project: { id: parts[2], name: label(root) }, slug, page, events, screens: shown,
+            ...page.type === "whiteboard" && { board: board(root, slug) } });
         }
         return send(response, 404, { error: "not found" });
       }

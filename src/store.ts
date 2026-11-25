@@ -2,10 +2,11 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { type Event, type Page, type Screen, type Type, type Version, validate } from "./page.ts";
+import { type Board, type Op, type Writer, apply, emptyBoard } from "./board.ts";
 
 export const home = process.env.ARTTI_HOME ?? join(homedir(), ".artti");
 
@@ -157,4 +158,21 @@ export function keep(root: string, slug: string, png: Buffer) {
   mkdirSync(dirname(join(pagesDir(root), path)), { recursive: true });
   writeFileSync(join(pagesDir(root), path), png);
   return path;
+}
+
+const boardPath = (root: string, slug: string) => join(pagesDir(root), safe(slug), "board.json");
+
+export function board(root: string, slug: string): Board {
+  const path = boardPath(root, slug);
+  return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) as Board : emptyBoard();
+}
+
+/** Applies `ops` to a whiteboard page and keeps the result; the server is its one writer, so a write never interleaves. */
+export function write(root: string, slug: string, ops: Op[], by: Writer) {
+  if (read(root, slug).page.type !== "whiteboard") throw new Error(`${slug} is not a whiteboard`);
+  const next = apply(board(root, slug), ops, by);
+  const path = boardPath(root, slug);
+  writeFileSync(path + ".tmp", JSON.stringify(next));
+  renameSync(path + ".tmp", path);
+  return next;
 }

@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import type { Event, Page, Screen, Version } from "../../src/page.ts";
+import type { Board } from "../../src/board.ts";
 
 export type { Event, Page, Screen, Version };
 
-export type Loaded = { project: { id: string; name: string }; slug: string; page: Page; events: Event[]; screens: Screen[] };
+export type Loaded = { project: { id: string; name: string }; slug: string; page: Page; events: Event[]; screens: Screen[]; board?: Board };
 export type Library = { id: string; name: string; screens: number; pages: { slug: string; title: string; type: string; status: string; updated: number; said: number }[] }[];
 
 const get = async <T,>(path: string) => {
