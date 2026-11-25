@@ -93,3 +93,34 @@ Live cursors, cursor chat, follow me, screenshare, a shared timer seen by everyo
 ## Kept from artti
 
 Verify pages (screens and their versions, a verdict each, rounds) and boards of options stay. On a whiteboard, a screen's versions can be placed as images, and marks on them still cut out a picture for the agent.
+
+## Build order
+
+Each step ends in something Max can use and that has been checked in a browser.
+
+1. **Core editor and the agent's read and write.**
+   - **Storage:** a `whiteboard` page keeps `board.json`, with one version per element. The server is its only writer and pushes changes live.
+   - **Elements:** shapes (all 12 kinds), text, sticky notes and sections.
+   - **Tools:** select, hand, text, note, section and shape, with their keys.
+   - **Selection and editing:**
+     - Click, shift-click and marquee selection.
+     - Move, resize and delete.
+     - Duplicate, copy and paste, undo and redo.
+     - Text edited in place.
+     - Colours, sizes and stacking order.
+     - Lock.
+   - **Agent:** `artti board get` and `write`, where each write is pinned to the version it read, plus claim frames.
+2. **Drawing and media.**
+   - Arrows: tied to elements, routed in right angles, with labels and heads.
+   - Pen and eraser.
+   - Images: dragged in, pasted or uploaded, and cropped.
+   - Group, align and tidy up.
+3. **The agent loop.**
+   - View context: what is selected, in view or being edited.
+   - Comments pinned to elements, each with a cut-out picture.
+   - Open questions shown with the agent's guess.
+   - `artti wait`.
+4. **The rest of the element set.**
+   - Tables, working HTML embeds that keep their state, and link cards.
+   - Stickers and face votes.
+   - Timer, find, and downloading the board.
