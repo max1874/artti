@@ -6,7 +6,7 @@ import { extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Event } from "./page.ts";
 import { Conflict, type Op } from "./board.ts";
-import { append, board, home, keep, label, write, pagesDir, projectId, projects, read, safe, screen, screens, slugs } from "./store.ts";
+import { append, board, home, imageTypes, keep, label, place, write, pagesDir, projectId, projects, read, safe, screen, screens, slugs } from "./store.ts";
 
 export const defaultPort = 7317;
 const web = fileURLToPath(new URL("../web/dist/", import.meta.url));
@@ -106,6 +106,20 @@ export function serve(port = defaultPort) {
           const root = rootOf(parts[2]!);
           if (!root) return send(response, 404, { error: "no such project" });
           return send(response, 200, { project: { id: parts[2], name: label(root) }, screens: screens(root) });
+        }
+        // An image dropped or pasted on a page, kept with its assets.
+        if (parts[1] === "asset" && parts.length === 4 && request.method === "POST") {
+          const root = rootOf(parts[2]!);
+          if (!root) return send(response, 404, { error: "no such project" });
+          const ext = imageTypes[request.headers["content-type"] ?? ""];
+          if (!ext) return send(response, 400, { error: "png, jpg, gif, webp or svg" });
+          const chunks: Buffer[] = [];
+          let size = 0;
+          for await (const chunk of request as AsyncIterable<Buffer>) {
+            if ((size += chunk.length) > 15 << 20) return send(response, 413, { error: "larger than 15 MB" });
+            chunks.push(chunk);
+          }
+          return send(response, 200, { src: place(root, safe(parts[3]!), Buffer.concat(chunks), ext) });
         }
         // A whiteboard's writes. The browser sends an Origin; the CLI, writing for the agent, does not.
         if (parts[1] === "board" && parts.length === 4 && request.method === "POST") {

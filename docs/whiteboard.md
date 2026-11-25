@@ -98,7 +98,7 @@ Verify pages (screens and their versions, a verdict each, rounds) and boards of 
 
 Each step ends in something Max can use and that has been checked in a browser.
 
-1. **Core editor and the agent's read and write.**
+1. **Core editor and the agent's read and write.** Done 2026-11-25.
    - **Storage:** a `whiteboard` page keeps `board.json`, with one version per element. The server is its only writer and pushes changes live.
    - **Elements:** shapes (all 12 kinds), text, sticky notes and sections.
    - **Tools:** select, hand, text, note, section and shape, with their keys.
@@ -110,7 +110,7 @@ Each step ends in something Max can use and that has been checked in a browser.
      - Colours, sizes and stacking order.
      - Lock.
    - **Agent:** `artti board get` and `write`, where each write is pinned to the version it read, plus claim frames.
-2. **Drawing and media.**
+2. **Drawing and media.** Done 2026-11-25; arrows do not yet route around elements in their way.
    - Arrows: tied to elements, routed in right angles, with labels and heads.
    - Pen and eraser.
    - Images: dragged in, pasted or uploaded, and cropped.

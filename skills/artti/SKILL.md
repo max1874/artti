@@ -55,6 +55,7 @@ artti board claim --at=0,0,1200,600       # first: a frame shows where you are a
 artti board write --ops ops.json          # all or none; prints each element's new version
 artti board claim --done                  # last
 artti board get                           # elements (each with its version v and who wrote it), order, claims
+artti board image shot.png                # copies a picture into the page; prints {"src", "w", "h"} for an image element
 ```
 
 `ops.json` is a list:
@@ -75,7 +76,9 @@ artti board get                           # elements (each with its version v an
   | `container` | A section: `x y w h`, `text` (its title, drawn 28 above the box), `color`. Write it before what it holds; it goes behind. |
   | `text` | `x y`, `text`, `size`, `wrap` (a width), `color`, `textAlign`, `placeholder` (a grey guess for the person to type over). |
   | `note` | The person's sticky notes. Read them; don't make them. |
-  | `image` | `x y w h`, `src`. |
+  | `arrow` | No `x y`: `from` and `to`, each an element id (it follows that element) or a point `[x, y]`. `label`, `color` (an ink), `dash: true`, `heads: [start, end]` of none, arrow or circle (default `["none","arrow"]`). Routed in right angles between facing sides; `fromSide`/`toSide` (top, right, bottom, left) pick others, and `bends: ["h" or "v", offsets…]` plans the legs. |
+  | `stroke` | A pen line: `x y`, `points` `[dx, dy, …]` from x, y (a point repeated makes a corner), `color`, `width`. |
+  | `image` | `x y w h`, `src` from `artti board image`; `crop: {zoom, x, y}` (zoom ≥ 1, x and y 0–1 pick the middle). |
 
 - **Values:**
   - Sizes: small 14, body 16, large 28, title 48, huge 96.
@@ -83,6 +86,7 @@ artti board get                           # elements (each with its version v an
   - Inks: ink, terracotta, blue, green, purple.
   - Any `#rrggbb` works for either.
   - `text` may use `**bold**`, `*italic*`, `` `code` ``, `[label](https://…)` and lines starting `- ` or `1. `.
+- **Groups:** elements sharing an id in `groups` (innermost first) are picked and moved as one.
 - **Lay out from one thing outward:** leave 24 between neighbours, give the whole the shape the idea has (a line, a loop, a tree, lanes), and lead with a title and one sentence. Never rebuild a board: change only what changes, and leave what the person placed where they put it.
 
 ## board body

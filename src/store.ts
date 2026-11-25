@@ -176,3 +176,27 @@ export function write(root: string, slug: string, ops: Op[], by: Writer) {
   renameSync(path + ".tmp", path);
   return next;
 }
+
+export const imageTypes: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "image/svg+xml": "svg" };
+
+/** An image placed on a page, kept in its assets; its src, relative to the page. */
+export function place(root: string, slug: string, bytes: Buffer, ext: string) {
+  const src = `assets/${randomBytes(5).toString("hex")}.${ext}`;
+  mkdirSync(join(pagesDir(root), safe(slug), "assets"), { recursive: true });
+  writeFileSync(join(pagesDir(root), safe(slug), src), bytes);
+  return src;
+}
+
+/** Width and height of a PNG, JPEG or GIF, read from its header. */
+export function imageSize(bytes: Buffer): { w: number; h: number } | undefined {
+  if (bytes.readUInt32BE(0) === 0x89504e47) return { w: bytes.readUInt32BE(16), h: bytes.readUInt32BE(20) };
+  if (bytes.toString("ascii", 0, 3) === "GIF") return { w: bytes.readUInt16LE(6), h: bytes.readUInt16LE(8) };
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) {
+    for (let at = 2; at + 9 < bytes.length;) {
+      if (bytes[at] !== 0xff) return;
+      const marker = bytes[at + 1]!;
+      if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) return { w: bytes.readUInt16BE(at + 7), h: bytes.readUInt16BE(at + 5) };
+      at += 2 + bytes.readUInt16BE(at + 2);
+    }
+  }
+}

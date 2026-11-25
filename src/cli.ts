@@ -3,10 +3,10 @@
 
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync, watch } from "node:fs";
-import { join } from "node:path";
+import { extname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { type Event, type Page, type Status, type Type, types } from "./page.ts";
-import { append, board, create, home, latest, pagesDir, projectId, projectRoot, read, screen, shot, slugs, update } from "./store.ts";
+import { append, board, create, home, imageSize, imageTypes, latest, pagesDir, place, projectId, projectRoot, read, screen, shot, slugs, update } from "./store.ts";
 import type { Op } from "./board.ts";
 import { defaultPort, serve } from "./server.ts";
 
@@ -18,7 +18,8 @@ const usage = `artti — pages an agent puts its work on; the person answers on 
                    [--screens <id,id>]                   verify: the screens whose newest version is under review
   artti board get [page]                                  a whiteboard's elements, order and claims, as JSON
   artti board write [page] --ops <file.json|->            apply a list of ops, all or none; see the skill for their shape
-  artti board claim [page] --at <x,y,w,h> | --done        show where you are at work, or that you are done
+  artti board claim [page] --at=<x,y,w,h> | --done        show where you are at work, or that you are done
+  artti board image [page] <file>                         put an image in the page's assets; prints its src and size
   artti open [page]                                       show it in the browser
   artti url [page]                                        print its link
   artti wait [page] [--timeout <seconds>]                 block until the person submits, then print what they said
@@ -181,8 +182,16 @@ async function main() {
       return console.log(`${id} v${version.n}${version.commit ? ` (${version.commit})` : ""}`);
     }
     case "board": {
-      const [action, name] = rest;
-      const slug = resolvePage(name);
+      const [action, ...args] = rest;
+      if (action === "image") {
+        const file = args.at(-1);
+        if (!file || !existsSync(file)) fail("usage: artti board image [page] <file>");
+        const ext = imageTypes[`image/${extname(file).slice(1).toLowerCase().replace("jpg", "jpeg").replace("svg", "svg+xml")}`];
+        if (!ext) fail("png, jpg, gif, webp or svg");
+        const bytes = readFileSync(file);
+        return console.log(JSON.stringify({ src: place(root, resolvePage(args.length > 1 ? args[0] : undefined), bytes, ext), ...imageSize(bytes) }));
+      }
+      const slug = resolvePage(args[0]);
       if (action === "get") return console.log(JSON.stringify(read(root, slug).page.type === "whiteboard" ? board(root, slug) : fail(`${slug} is not a whiteboard`), null, 1));
       const ops: Op[] = action === "write"
         ? JSON.parse(values.ops === "-" ? readFileSync(0, "utf8") : values.ops ? readFileSync(values.ops, "utf8") : fail("--ops <file.json|-> is required"))

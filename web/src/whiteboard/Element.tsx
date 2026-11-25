@@ -1,7 +1,7 @@
 // One element drawn on the board, at its place in board units.
 
 import { type CSSProperties, type ReactNode, useLayoutEffect, useRef } from "react";
-import { type Element, fill, fontSize, ink } from "./model.ts";
+import { type Element, type Point, boxOfPoints, fill, fontSize, halfway, headsOf, ink, smooth, strokePoints } from "./model.ts";
 
 /** The outline of a block of `kind`, `w` by `h`. */
 export function outline(kind: unknown, w: number, h: number): ReactNode {
@@ -91,15 +91,29 @@ export function Editable({ text, onDone, className, style }: { text: string; onD
   );
 }
 
-export function ElementView({ id, el, selected, editing, onText }: {
+/** An arrowhead or a dot at `tip`, the line arriving from `from`. */
+function head(kind: string, tip: Point, from: Point, color: string) {
+  if (kind === "circle") return <circle cx={tip.x} cy={tip.y} r={4.5} fill={color} />;
+  if (kind !== "arrow") return null;
+  const len = Math.hypot(tip.x - from.x, tip.y - from.y) || 1, ux = (tip.x - from.x) / len, uy = (tip.y - from.y) / len;
+  const bx = tip.x - ux * 11, by = tip.y - uy * 11;
+  return <polygon points={`${tip.x},${tip.y} ${bx - uy * 5.5},${by + ux * 5.5} ${bx + uy * 5.5},${by - ux * 5.5}`} fill={color} />;
+}
+
+export function ElementView({ id, el, selected, editing, onText, path, resolve, faded }: {
   id: string; el: Element; selected: boolean; editing: boolean; onText: (text: string) => void;
+  /** An arrow's route, worked out from where its ends are. */
+  path?: Point[];
+  /** An image's src as the browser loads it. */
+  resolve: (src: string) => string;
+  faded?: boolean;
 }) {
   const text = typeof el.text === "string" ? el.text : "";
   const words = (size: number, style?: CSSProperties) => editing
     ? <Editable text={text} onDone={onText} style={{ fontSize: size, textAlign: (el.textAlign as CSSProperties["textAlign"]) ?? undefined, ...style }} />
     : text ? <Rich text={text} /> : null;
   const box: CSSProperties = { left: el.x, top: el.y, width: el.w, height: el.h };
-  const state = `${selected ? " selected" : ""}${el.locked ? " locked" : ""}`;
+  const state = `${selected ? " selected" : ""}${el.locked ? " locked" : ""}${faded ? " faded" : ""}`;
   switch (el.type) {
     case "shape": {
       const w = el.w ?? 200, h = el.h ?? 120, size = fontSize(el, 15);
@@ -137,11 +151,48 @@ export function ElementView({ id, el, selected, editing, onText }: {
         </div>
       );
     }
-    case "image": return (
-      <div data-id={id} className={`el image${state}`} style={box}>
-        <img src={String(el.src).startsWith("_blob/") ? `/${el.src}` : String(el.src)} alt="" draggable={false} />
-      </div>
-    );
+    case "image": {
+      const crop = el.crop as { zoom?: number; x?: number; y?: number } | undefined;
+      return (
+        <div data-id={id} className={`el image${state}`} style={box}>
+          <img src={resolve(String(el.src))} alt="" draggable={false}
+            style={crop ? { transform: `scale(${Math.max(1, crop.zoom ?? 1)})`, transformOrigin: `${(crop.x ?? 0.5) * 100}% ${(crop.y ?? 0.5) * 100}%` } : undefined} />
+        </div>
+      );
+    }
+    case "stroke": {
+      const points = strokePoints(el), width = Number(el.width) || 4, d = smooth(points);
+      return (
+        <div data-id={id} className={`el stroke${state}`} style={{ left: el.x, top: el.y }}>
+          <svg overflow="visible" width={1} height={1}>
+            <path className="hit" d={d} strokeWidth={Math.max(width, 14)} />
+            <path d={d} fill="none" stroke={ink(el.color)} strokeWidth={width} strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </div>
+      );
+    }
+    case "arrow": {
+      if (!path || path.length < 2) return null;
+      const b = boxOfPoints(path, 12), local = path.map(p => ({ x: p.x - b.x, y: p.y - b.y }));
+      const d = local.map((p, i) => `${i ? "L" : "M"}${p.x},${p.y}`).join(" ");
+      const [start, end] = headsOf(el), color = ink(el.color), middle = halfway(local);
+      const label = typeof el.label === "string" ? el.label : "";
+      return (
+        <div data-id={id} className={`el arrow${state}`} style={{ left: b.x, top: b.y, width: b.w, height: b.h }}>
+          <svg width={b.w} height={b.h} overflow="visible">
+            <path className="hit" d={d} strokeWidth={14} />
+            <path d={d} fill="none" stroke={color} strokeWidth={2} strokeDasharray={el.dash ? "7 6" : undefined} strokeLinejoin="round" />
+            {head(start, local[0]!, local[1]!, color)}
+            {head(end, local.at(-1)!, local.at(-2)!, color)}
+          </svg>
+          {(label || editing) && (
+            <div className="arrow-label" style={{ left: middle.x, top: middle.y }}>
+              {editing ? <Editable text={label} onDone={onText} /> : <Rich text={label} />}
+            </div>
+          )}
+        </div>
+      );
+    }
     // The rest of the set arrives in later steps of docs/whiteboard.md; until then each shows where it is.
     default: return <div data-id={id} className={`el pending${state}`} style={{ ...box, width: el.w ?? 160, height: el.h ?? 60 }}>{el.type}</div>;
   }

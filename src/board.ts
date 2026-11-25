@@ -1,6 +1,7 @@
 // A whiteboard's content: its elements, their stacking order, and where an agent says it is at work. docs/whiteboard.md.
 // Pure, so the server and the viewer apply writes the same way.
 
+/** Placed at x, y, except an arrow, which is placed by its `from` and `to` (an element id or a point [x, y]). */
 export type Element = { type: ElementType; x: number; y: number; w?: number; h?: number; [field: string]: unknown };
 export const elementTypes = ["shape", "note", "container", "text", "stroke", "arrow", "image", "html", "table", "link", "sticker"] as const;
 export type ElementType = (typeof elementTypes)[number];
@@ -75,7 +76,9 @@ export function apply(board: Board, ops: Op[], by: Writer): Board {
     delete fields.by;
     for (const [key, value] of Object.entries(fields)) if (value === null) delete fields[key];
     if (!elementTypes.includes(fields.type as ElementType)) throw new Error(`${op.id}: unknown type ${String(fields.type)}`);
-    if (!Number.isFinite(fields.x) || !Number.isFinite(fields.y)) throw new Error(`${op.id}: x and y must be numbers`);
+    // An arrow is placed by its ends; everything else by its x and y.
+    if (fields.type === "arrow" ? fields.from === undefined || fields.to === undefined : !Number.isFinite(fields.x) || !Number.isFinite(fields.y))
+      throw new Error(fields.type === "arrow" ? `${op.id}: an arrow needs from and to` : `${op.id}: x and y must be numbers`);
     if (JSON.stringify(fields).length > limits.element) throw new Error(`${op.id} is larger than ${limits.element / 1000} KB`);
     next.elements[op.id] = { ...(fields as Element), v: (current?.v ?? 0) + 1, by };
     if (!current) {
