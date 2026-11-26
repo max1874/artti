@@ -79,6 +79,10 @@ artti board image shot.png                # copies a picture into the page; prin
   | `arrow` | No `x y`: `from` and `to`, each an element id (it follows that element) or a point `[x, y]`. `label`, `color` (an ink), `dash: true`, `heads: [start, end]` of none, arrow or circle (default `["none","arrow"]`). Routed in right angles between facing sides; `fromSide`/`toSide` (top, right, bottom, left) pick others, and `bends: ["h" or "v", offsets…]` plans the legs. |
   | `stroke` | A pen line: `x y`, `points` `[dx, dy, …]` from x, y (a point repeated makes a corner), `color`, `width`. |
   | `image` | `x y w h`, `src` from `artti board image`; `crop: {zoom, x, y}` (zoom ≥ 1, x and y 0–1 pick the middle). |
+  | `table` | `x y`, `w` (optional), `rows`: a list of rows of strings; row 1 is the header. `color` (a fill) colours the header, `heat` (a fill) colours each number by its size, `fills` is a matching grid of fills or null. |
+  | `html` | A working page in a sandbox: `x y w h`, `html` (a whole small page, 200 KB at most), `state`. In the page, `onLoad(state => …)` runs with the kept state now and whenever it changes, `save(state)` keeps a new one, and `await load()` reads it. What people enter stays in `state`, which you can read and write too. |
+  | `link` | A card that opens a page: `x y`, `url` (`artti url <page>` for another artti page), `title`, `kind` (whiteboard, verify, board, doc, deck or page), `note`. |
+  | `sticker` | The person's emoji, `emoji`, stuck `on` an element with `x y` from its corner. Read them as votes; `artti board view` counts them. |
 
 - **Values:**
   - Sizes: small 14, body 16, large 28, title 48, huge 96.
@@ -90,6 +94,7 @@ artti board image shot.png                # copies a picture into the page; prin
   - **"This box", "here":** run `artti board view` first. It prints what they have selected, in view and are editing, and what they added, changed, moved, deleted or answered since you last looked. Your own writes never show up there.
   - **Comments:** they pin comments to elements (or to a point on the board), and each comment is their message to you. `artti wait` returns as soon as one arrives, with the element it is on, a picture of the spot, and the same view and changes. Do what it asks. Then answer with `artti reply --to <id> --done "<what you did>"`, which also resolves the thread; leave out `--done` when you are asking something back.
   - **Open questions:** ask them on the board: a `text` with the question, and under it a `text` with an empty `text` and your guess as `placeholder`. Build on the guess in the meantime. When they type over it, `artti board view` reports `ANSWERED`.
+- **Timer:** `{ "op": "meta", "data": { "timer": { "ends": <epoch ms> } } }` starts the board's countdown; `{ "left": <ms> }` pauses it and `null` stops it.
 - **Groups:** elements sharing an id in `groups` (innermost first) are picked and moved as one.
 - **Lay out from one thing outward:** leave 24 between neighbours, give the whole the shape the idea has (a line, a loop, a tree, lanes), and lead with a title and one sentence. Never rebuild a board: change only what changes, and leave what the person placed where they put it.
 

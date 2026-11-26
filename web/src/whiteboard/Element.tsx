@@ -1,7 +1,8 @@
 // One element drawn on the board, at its place in board units.
 
 import { type CSSProperties, type ReactNode, useLayoutEffect, useRef } from "react";
-import { type Element, type Point, boxOfPoints, fill, fontSize, halfway, headsOf, ink, smooth, strokePoints } from "./model.ts";
+import { Embed } from "./Embed.tsx";
+import { type Element, type Point, boxOfPoints, cellsOf, fill, fontSize, halfway, headsOf, ink, smooth, strokePoints } from "./model.ts";
 
 /** The outline of a block of `kind`, `w` by `h`. */
 export function outline(kind: unknown, w: number, h: number): ReactNode {
@@ -68,8 +69,10 @@ export function Rich({ text }: { text: string }) {
   })}</>;
 }
 
-/** Words being written in place; done on leaving, Escape or ⌘↩. */
-export function Editable({ text, onDone, className, style }: { text: string; onDone: (text: string) => void; className?: string; style?: CSSProperties }) {
+/** Words being written in place; done on leaving, Escape or ⌘↩, and in a table, Tab goes on to the next cell. */
+export function Editable({ text, onDone, onTab, className, style }: {
+  text: string; onDone: (text: string) => void; onTab?: (back: boolean) => void; className?: string; style?: CSSProperties;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const node = ref.current!;
@@ -87,6 +90,7 @@ export function Editable({ text, onDone, className, style }: { text: string; onD
       onKeyDown={event => {
         event.stopPropagation();
         if (event.key === "Escape" || (event.key === "Enter" && (event.metaKey || event.ctrlKey))) { event.preventDefault(); event.currentTarget.blur(); }
+        if (event.key === "Tab" && onTab) { event.preventDefault(); event.currentTarget.blur(); onTab(event.shiftKey); }
       }} />
   );
 }
@@ -100,8 +104,15 @@ function head(kind: string, tip: Point, from: Point, color: string) {
   return <polygon points={`${tip.x},${tip.y} ${bx - uy * 5.5},${by + ux * 5.5} ${bx + uy * 5.5},${by - ux * 5.5}`} fill={color} />;
 }
 
-export function ElementView({ id, el, selected, editing, onText, path, resolve, faded }: {
+export function ElementView({ id, el, selected, editing, onText, path, resolve, faded, cell, onTab, live, onSave, onEscape }: {
   id: string; el: Element; selected: boolean; editing: boolean; onText: (text: string) => void;
+  /** The table cell being edited, and where Tab goes from it. */
+  cell?: [number, number];
+  onTab?: (back: boolean) => void;
+  /** An embed takes the pointer only when it is the one thing picked. */
+  live?: boolean;
+  onSave?: (state: unknown) => void;
+  onEscape?: () => void;
   /** An arrow's route, worked out from where its ends are. */
   path?: Point[];
   /** An image's src as the browser loads it. */
@@ -193,6 +204,59 @@ export function ElementView({ id, el, selected, editing, onText, path, resolve, 
         </div>
       );
     }
+    case "table": {
+      const rows = cellsOf(el), numbers = rows.slice(1).flat().filter(v => v.trim() && Number.isFinite(Number(v))).map(Number);
+      const low = Math.min(...numbers), high = Math.max(...numbers), fills = Array.isArray(el.fills) ? el.fills as (string | null)[][] : [];
+      // A heat map colours each number by where it falls between the smallest and the largest.
+      const heat = (value: string) => {
+        const n = Number(value);
+        if (!el.heat || !value.trim() || !Number.isFinite(n)) return;
+        return `color-mix(in srgb, ${fill(el.heat)} ${Math.round(18 + 72 * (high > low ? (n - low) / (high - low) : 1))}%, transparent)`;
+      };
+      return (
+        <table data-id={id} data-measure className={`el table${state}`} style={{ left: el.x, top: el.y, width: el.w }}>
+          <tbody>
+            {rows.map((row, r) => (
+              <tr key={r}>
+                {row.map((value, c) => {
+                  const Cell = r === 0 ? "th" : "td", here = editing && cell?.[0] === r && cell[1] === c;
+                  const background = (typeof fills[r]?.[c] === "string" ? fill(fills[r]![c]) : undefined) ?? (r === 0 && el.color ? fill(el.color) : heat(value));
+                  return (
+                    <Cell key={c} data-cell={`${r},${c}`} style={{ background }}>
+                      {here ? <Editable text={value} onDone={onText} onTab={onTab} /> : value ? <Rich text={value} /> : "​"}
+                    </Cell>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      );
+    }
+    case "html": return (
+      <div data-id={id} className={`el embed${state}${live ? " live" : ""}`} style={{ ...box, width: el.w ?? 480, height: el.h ?? 320 }}>
+        {/* Under the page, for pictures of the board: a sandboxed page cannot be drawn from outside it. */}
+        <div className="embed-label">网页 · 在白板上打开看</div>
+        {selected && <div className="embed-grip">{live ? "拖这里移动 · 网页里可以直接操作" : "网页"}</div>}
+        <Embed html={typeof el.html === "string" ? el.html : ""} state={el.state} live={!!live} onSave={state => onSave?.(state)} onEscape={() => onEscape?.()} />
+      </div>
+    );
+    case "link": {
+      const url = typeof el.url === "string" ? el.url : "";
+      let where = url;
+      try { where = new URL(url).host; } catch {}
+      const kinds: Record<string, string> = { whiteboard: "白板", verify: "验收", board: "方案", doc: "文档", deck: "幻灯片", page: "网页" };
+      return (
+        <div data-id={id} className={`el link${state}`} style={{ ...box, width: el.w ?? 300, height: el.h ?? 88 }} title="双击打开">
+          <span className="kind">{kinds[String(el.kind)] ?? "链接"}</span>
+          <b>{String(el.title ?? where ?? "")}</b>
+          <span className="where">{typeof el.note === "string" ? el.note : where}</span>
+        </div>
+      );
+    }
+    case "sticker": return (
+      <div data-id={id} className={`el sticker${state}`} style={{ left: el.x, top: el.y }}>{String(el.emoji ?? "👍")}</div>
+    );
     // The rest of the set arrives in later steps of docs/whiteboard.md; until then each shows where it is.
     default: return <div data-id={id} className={`el pending${state}`} style={{ ...box, width: el.w ?? 160, height: el.h ?? 60 }}>{el.type}</div>;
   }

@@ -120,7 +120,21 @@ Each step ends in something Max can use and that has been checked in a browser.
    - Comments pinned to elements, each with a cut-out picture.
    - Open questions shown with the agent's guess.
    - `artti wait`.
-4. **The rest of the element set.**
+4. **The rest of the element set.** Done 2026-11-26.
    - Tables, working HTML embeds that keep their state, and link cards.
    - Stickers and face votes.
    - Timer, find, and downloading the board.
+
+## Not yet matched (2026-11-26)
+
+After step 4, these items from the lists above are still missing:
+
+- **Arrows** do not route around elements in their way.
+- **Tables:** people cannot colour a single cell (agents can, with `fills`), and long tables are not split into pages.
+- **Embeds:** an embed shows an `html` page; there is no way to embed another site by its URL. Pictures of the board show an embed as a label, because a sandboxed page cannot be drawn from outside it.
+- **Stickers** are emoji only: there are no hand-drawn stickers, and no face sticker standing for a person, since one machine has one person.
+- **Style:** copying and pasting just the style; hex values and the screen colour picker; a choice of font; outline and line styles.
+- **Layers:** selecting a layer, and a drawing's layers.
+- **Navigation:** zoom-in and zoom-out buttons, and hiding the grid.
+- **Voice:** dictation. macOS dictation works in any text box meanwhile.
+- **Many people:** everything in "Many people", which waits for sharing.

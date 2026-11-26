@@ -1,24 +1,25 @@
 // The whiteboard editor: the board, its tools, and every gesture on it. docs/whiteboard.md.
 
 import { toCanvas } from "html-to-image";
+import { Find, Timer, download } from "./Extras.tsx";
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { type Event, type Loaded, asset } from "../api.ts";
 import { CommentBox, Conversation, Mark, Popover, useCtx } from "../canvas.tsx";
 import { ElementView, outline } from "./Element.tsx";
 import {
   type Board, type Box, type Element, type Op, type Point, type TextSize,
-  apply, boxOfPoints, contains, defaults, distanceToStroke, fieldsOf, fills, hasText, headsOf, inks, inverse, meets, newId, route,
-  shapeKinds, shapeNames, sizeNames, span, strokeBox, textSizes, union,
+  apply, boxOfPoints, cellsOf, contains, defaults, distanceToStroke, fieldsOf, fills, hasText, headsOf, inks, inverse, meets, newId, route,
+  shapeKinds, shapeNames, sizeNames, span, stickers, strokeBox, textSizes, union, wordsOf,
 } from "./model.ts";
 
-type Tool = "select" | "hand" | "text" | "note" | "container" | "shape" | "arrow" | "pen" | "eraser" | "comment";
+type Tool = "select" | "hand" | "text" | "note" | "container" | "shape" | "arrow" | "pen" | "eraser" | "comment" | "sticker";
 const toolKeys: Record<string, Tool> = {
-  v: "select", h: "hand", t: "text", s: "note", n: "note", a: "container", f: "container", r: "shape", o: "shape", d: "shape", l: "arrow", x: "arrow", p: "pen", m: "pen", c: "comment",
+  v: "select", h: "hand", t: "text", s: "note", n: "note", a: "container", f: "container", r: "shape", o: "shape", d: "shape", l: "arrow", x: "arrow", p: "pen", m: "pen", c: "comment", e: "sticker",
 };
 const kindKeys: Record<string, string> = { r: "rounded", o: "ellipse", d: "diamond" };
 const toolNames: [Tool, string, string][] = [
   ["select", "选择", "V"], ["hand", "抓手", "H"], ["text", "文字", "T"], ["note", "便签", "S"], ["container", "分区", "A"],
-  ["arrow", "箭头", "L"], ["pen", "钢笔", "P"], ["eraser", "橡皮", ""], ["comment", "评论", "C"],
+  ["arrow", "箭头", "L"], ["pen", "钢笔", "P"], ["eraser", "橡皮", ""], ["sticker", "贴纸", "E"], ["comment", "评论", "C"],
 ];
 const penWidths = [2, 4, 8];
 const imageTypes = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml"];
@@ -35,12 +36,13 @@ type Gesture =
   | { kind: "pen"; origin: Point; points: number[] }
   | { kind: "erase"; hits: Set<string> }
   | { kind: "crop"; id: string; start: Point; origin: { zoom: number; x: number; y: number }; box: Box }
-  | { kind: "pin"; pin: Pin };
+  | { kind: "pin"; pin: Pin }
+  | { kind: "stick"; at: Point; on?: string };
 
 const handles = ["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const;
 /** A comment's place: on an element, board units from its corner, so it moves with it; or a point on the board. */
 type Pin = { target: string; spot: Point };
-const notPictured = ".pin, .mark, .popover, .frame-sel, .claim, .end-handle, .marquee, .crop-frame";
+const notPictured = ".pin, .mark, .popover, .frame-sel, .claim, .end-handle, .marquee, .crop-frame, .embed-grip, iframe";
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 async function post(project: string, slug: string, ops: Op[]) {
@@ -82,6 +84,12 @@ export function Whiteboard({ data }: { data: Loaded }) {
   const [space, setSpace] = useState(false);
   const [toast, setToast] = useState<string>();
   const [pinning, setPinning] = useState<Pin>();
+  const [sticker, setSticker] = useState(stickers[0]!);
+  const [cell, setCell] = useState<[number, number]>();
+  // The table cell last worked in: where rows and columns are added or taken out.
+  const lastCell = useRef<{ id: string; at: [number, number] }>(undefined);
+  const [finding, setFinding] = useState(false);
+  const [menu, setMenu] = useState(false);
   const [open, setOpen] = useState<string>();
   const ctx = useCtx(data);
   const toastTimer = useRef<number>(undefined);
@@ -96,8 +104,14 @@ export function Whiteboard({ data }: { data: Loaded }) {
   const shown = (id: string) => ({ ...board.elements[id]!, ...preview[id] }) as Element;
   const endBox = (id: string) => board.elements[id] && board.elements[id].type !== "arrow" ? boxOf(id) : undefined;
   const pathOf = (el: Element) => route(el, endBox);
+  /** Where a sticker on something sits: its x and y are from that thing's corner, so it goes where the thing goes. */
+  const stuckTo = (el: Element) => el.type === "sticker" && typeof el.on === "string" && board.elements[el.on] ? boxOf(el.on) : undefined;
+  const placed = (id: string): Element => {
+    const el = shown(id), on = stuckTo(el);
+    return on ? { ...el, x: on.x + el.x, y: on.y + el.y } : el;
+  };
   function boxOf(id: string): Box {
-    const el = shown(id);
+    const el = placed(id);
     if (el.type === "arrow") {
       const path = pathOf(el);
       return path ? boxOfPoints(path) : { x: 0, y: 0, w: 0, h: 0 };
@@ -108,7 +122,7 @@ export function Whiteboard({ data }: { data: Loaded }) {
   }
   /** The topmost thing an arrow can join at `p`. */
   const joinable = (p: Point, except?: unknown) => [...board.order].reverse().find(id => id !== except &&
-    !["arrow", "stroke"].includes(board.elements[id]!.type) && contains(boxOf(id), { ...p, w: 0, h: 0 }));
+    !["arrow", "stroke", "sticker"].includes(board.elements[id]!.type) && contains(boxOf(id), { ...p, w: 0, h: 0 }));
 
   const say = (text: string) => {
     setToast(text);
@@ -131,6 +145,23 @@ export function Whiteboard({ data }: { data: Loaded }) {
     const b = boxOf(id);
     return { target: `elements/${id}`, spot: { x: p.x - b.x, y: p.y - b.y } };
   };
+  /** The board drawn into a picture, `box` of it at `ratio`, without the editor's own marks. */
+  const render = (box: Box, ratio: number) => toCanvas(world.current!, {
+    width: box.w, height: box.h, pixelRatio: ratio, skipFonts: true, backgroundColor: getComputedStyle(viewport.current!).backgroundColor,
+    style: { transform: `translate(${-box.x}px, ${-box.y}px)` },
+    filter: node => !(node instanceof HTMLElement && node.matches(notPictured)),
+  });
+  const save = async (as: "png" | "json") => {
+    setMenu(false);
+    const name = data.page.title.replace(/[/\\:*?"<>|]+/gu, "-");
+    if (as === "json") return download(`${name}.json`, URL.createObjectURL(new Blob([JSON.stringify(board, null, 1)], { type: "application/json" })));
+    const area = union(board.order.map(boxOf));
+    if (!area) return say("白板是空的");
+    const box = { x: area.x - 48, y: area.y - 48, w: area.w + 96, h: area.h + 96 };
+    say("正在生成图片…");
+    download(`${name}.png`, (await render(box, Math.min(2, 8000 / Math.max(box.w, box.h)))).toDataURL("image/png"));
+  };
+
   /** A picture of the board around what a comment is about, the spot ringed: what the agent looks at. */
   const picture = async (pin: Pin) => {
     const at = placeOf(pin)!, area = pin.target === "board" ? { x: at.x - 160, y: at.y - 110, w: 320, h: 220 } : boxOf(pin.target.slice(9));
@@ -139,12 +170,7 @@ export function Whiteboard({ data }: { data: Loaded }) {
     box.h = Math.max(area.y + area.h, at.y) + 60 - box.y;
     const ratio = Math.min(2, 2400 / Math.max(box.w, box.h));
     try {
-      const canvas = await toCanvas(world.current!, {
-        width: box.w, height: box.h, pixelRatio: ratio, skipFonts: true, backgroundColor: getComputedStyle(viewport.current!).backgroundColor,
-        style: { transform: `translate(${-box.x}px, ${-box.y}px)` },
-        filter: node => !(node instanceof HTMLElement && node.matches(notPictured)),
-      });
-      const g = canvas.getContext("2d")!;
+      const canvas = await render(box, ratio), g = canvas.getContext("2d")!;
       g.strokeStyle = "#e5484d";
       g.lineWidth = 3 * ratio;
       g.beginPath();
@@ -240,7 +266,8 @@ export function Whiteboard({ data }: { data: Loaded }) {
       const frame = boxOf(id);
       for (const other of board.order) if (other !== id && contains(frame, boxOf(other))) all.add(other);
     }
-    return unlocked([...all]);
+    // A sticker on something that moves goes with it already.
+    return unlocked([...all]).filter(id => !all.has(String(board.elements[id]?.on)));
   };
 
   /** A section is picked by its title or its edge; inside it, the person is working on what it holds. */
@@ -264,6 +291,13 @@ export function Whiteboard({ data }: { data: Loaded }) {
     setEditing(undefined);
     const el = current.current.elements[id];
     if (!el) return;
+    if (el.type === "table") {
+      if (!cell) return;
+      const rows = cellsOf(el);
+      setCell(undefined);
+      if (rows[cell[0]]![cell[1]] !== text) commit([{ op: "update", id, data: { rows: rows.map((row, r) => r === cell[0] ? row.map((v, c) => c === cell[1] ? text : v) : row) } }]);
+      return;
+    }
     const field = el.type === "arrow" ? "label" : "text";
     if (el.type === "text" && !text.trim()) {
       // A text left empty was never there: it goes, and so does its place in the history.
@@ -276,12 +310,12 @@ export function Whiteboard({ data }: { data: Loaded }) {
     if (text !== (el[field] ?? "")) commit([{ op: "update", id, data: { [field]: text || null } }]);
   };
 
-  /** Deleting takes the arrows that join what is deleted with it. */
+  /** Deleting takes the arrows that join what is deleted, and the stickers on it, with it. */
   const remove = () => {
     const gone = new Set(unlocked());
     for (const id of board.order) {
       const el = board.elements[id]!;
-      if (el.type === "arrow" && (gone.has(el.from as string) || gone.has(el.to as string))) gone.add(id);
+      if ((el.type === "arrow" && (gone.has(el.from as string) || gone.has(el.to as string))) || gone.has(el.on as string)) gone.add(id);
     }
     commit([...gone].map(id => ({ op: "delete", id }) as Op));
     setSelected([]);
@@ -289,6 +323,8 @@ export function Whiteboard({ data }: { data: Loaded }) {
   /** Elements as they would be copied: an arrow's end outside the copy becomes the point it reaches. */
   const snapshot = (ids: string[]) => ids.map(id => {
     const el = fieldsOf(board.elements[id]!);
+    // A sticker copied without what it is on stays where it is seen.
+    if (el.type === "sticker" && el.on && !ids.includes(el.on as string)) return { id, el: { ...placed(id), on: undefined } };
     if (el.type !== "arrow") return { id, el };
     const path = pathOf(el) ?? [{ x: 0, y: 0 }];
     const keep = (end: unknown, p: Point) => typeof end === "string" && !ids.includes(end) ? [p.x, p.y] : end;
@@ -302,7 +338,7 @@ export function Whiteboard({ data }: { data: Loaded }) {
     const end = (e: unknown) => typeof e === "string" ? ids.get(e) ?? e : Array.isArray(e) ? [e[0] + dx, e[1] + dy] : e;
     commit(items.map(({ id, el }) => ({
       op: "set", id: ids.get(id)!,
-      data: { ...el, ...el.type === "arrow" ? { from: end(el.from), to: end(el.to) } : { x: el.x + dx, y: el.y + dy },
+      data: { ...el, ...el.type === "arrow" ? { from: end(el.from), to: end(el.to) } : el.on ? { on: ids.get(el.on as string) } : { x: el.x + dx, y: el.y + dy },
         locked: undefined, groups: Array.isArray(el.groups) ? (el.groups as string[]).map(regroup) : undefined },
     }) as Op));
     setSelected([...ids.values()]);
@@ -325,6 +361,23 @@ export function Whiteboard({ data }: { data: Loaded }) {
   };
   const update = (ids: string[], data: Record<string, unknown>) => commit(unlocked(ids).map(id => ({ op: "update", id, data }) as Op));
   const ofType = (...types: string[]) => live.filter(id => types.includes(board.elements[id]!.type));
+  /** Rows or columns added after, or taken out at, the cell last worked in (the last one when none was). */
+  const reshape = (how: "row" | "column" | "-row" | "-column") => {
+    const id = live[0]!, rows = cellsOf(board.elements[id]!);
+    const [r, c] = lastCell.current?.id === id ? lastCell.current.at : [rows.length - 1, rows[0]!.length - 1];
+    const next = how === "row" ? [...rows.slice(0, r + 1), rows[0]!.map(() => ""), ...rows.slice(r + 1)]
+      : how === "column" ? rows.map(row => [...row.slice(0, c + 1), "", ...row.slice(c + 1)])
+      : how === "-row" ? rows.length > 1 ? rows.filter((_, i) => i !== r) : rows
+      : rows[0]!.length > 1 ? rows.map(row => row.filter((_, i) => i !== c)) : rows;
+    lastCell.current = undefined;
+    commit([{ op: "update", id, data: { rows: next } }]);
+  };
+  const editCell = (id: string, at: [number, number]) => {
+    setSelected([id]);
+    setEditing(id);
+    setCell(at);
+    lastCell.current = { id, at };
+  };
   /** A comment begun on an element, pinned at its top right. */
   const commentOn = (id: string) => {
     const b = boxOf(id);
@@ -412,6 +465,7 @@ export function Whiteboard({ data }: { data: Loaded }) {
     if (mod && key === "a") { event.preventDefault(); return setSelected(board.order); }
     if (mod && key === "d") { event.preventDefault(); return duplicate(); }
     if (mod && key === "g") { event.preventDefault(); return event.shiftKey ? ungroup() : group(); }
+    if (mod && key === "f") { event.preventDefault(); return setFinding(true); }
     if (mod && (key === "c" || key === "x") && live.length) {
       void navigator.clipboard.writeText(JSON.stringify({ artti: snapshot(live) }));
       if (key === "x") remove(); else say("已复制");
@@ -423,6 +477,7 @@ export function Whiteboard({ data }: { data: Loaded }) {
     if (event.key === "Escape") { setSelected([]); setTool("select"); setKinds(false); setCropping(undefined); setPinning(undefined); setOpen(undefined); return; }
     if (event.key === "Tab" && live.length === 1) { event.preventDefault(); return commentOn(live[0]!); }
     if (event.key === "Enter" && cropping) return setCropping(undefined);
+    if (event.key === "Enter" && live.length === 1 && board.elements[live[0]!]!.type === "table" && !board.elements[live[0]!]!.locked) { event.preventDefault(); return editCell(live[0]!, [0, 0]); }
     if (event.key === "Enter" && live.length === 1 && hasText(board.elements[live[0]!]!) && !board.elements[live[0]!]!.locked) { event.preventDefault(); return setEditing(live[0]); }
     if (event.key.startsWith("Arrow") && live.length) {
       event.preventDefault();
@@ -446,7 +501,14 @@ export function Whiteboard({ data }: { data: Loaded }) {
         return place(artti, pointer.current.x - (frame.x + frame.w / 2), pointer.current.y - (frame.y + frame.h / 2));
       }
     } catch {}
-    if (text.trim()) create({ type: "text", x: pointer.current.x, y: pointer.current.y, text: text.trim(), ...text.length > 60 && { wrap: 400 } }, false);
+    const { x, y } = pointer.current, lines = text.trim().split(/\r?\n/u);
+    // Cells copied from a spreadsheet make a table; a link makes a card.
+    if (lines.length > 1 && lines.every(line => line.includes("\t"))) return void create({ type: "table", x, y, rows: lines.map(line => line.split("\t")) }, false);
+    if (/^https?:\/\/\S+$/u.test(text.trim())) {
+      const url = text.trim(), page = url.match(/\/p\/[^/]+\/([^/?#]+)/u);
+      return void create({ type: "link", x, y, url, ...page && { title: decodeURIComponent(page[1]!).replace(/^\d{4}-/u, ""), kind: "page" } }, false);
+    }
+    if (text.trim()) create({ type: "text", x, y, text: text.trim(), ...text.length > 60 && { wrap: 400 } }, false);
   };
   useEffect(() => {
     const element = viewport.current!;
@@ -498,7 +560,9 @@ export function Whiteboard({ data }: { data: Loaded }) {
           const endHandle = target.closest<HTMLElement>("[data-end]")?.dataset.end as "from" | "to" | undefined;
           const hit = target.closest<HTMLElement>("[data-id]")?.dataset.id;
           if (cropping && hit !== cropping) setCropping(undefined);
-          if (tool === "comment") {
+          if (tool === "sticker") {
+            gesture.current = { kind: "stick", at: p, on: joinable(p) };
+          } else if (tool === "comment") {
             // Opened when the button comes up, like a new text, so the box keeps the focus.
             gesture.current = { kind: "pin", pin: pinOn(hit, p) };
           } else if (endHandle && single) {
@@ -579,7 +643,7 @@ export function Whiteboard({ data }: { data: Loaded }) {
             }
             return setFading([...g.hits]);
           }
-          if (g.kind === "pin") return;
+          if (g.kind === "pin" || g.kind === "stick") return;
           if (g.kind === "crop") {
             const zoom = g.origin.zoom;
             if (zoom <= 1) return;
@@ -602,7 +666,9 @@ export function Whiteboard({ data }: { data: Loaded }) {
           const map = (x: number, y: number) => [left + (x - f.x) * sx, top + (y - f.y) * sy] as const;
           setPreview(Object.fromEntries([...g.origin].map(([id, { box: b, el }]) => {
             if (el.type === "arrow") return [id, Object.fromEntries((["from", "to"] as const).filter(e => Array.isArray(el[e])).map(e => [e, map(...(el[e] as [number, number]))]))];
+            if (el.type === "sticker") return [id, {}];
             const [x, y] = map(el.x, el.y);
+            if (el.type === "table") return [id, { x, y, w: Math.max(80, b.w * sx) }];
             if (el.type === "stroke") return [id, { x, y, points: (el.points as number[]).map((v, i) => v * (i % 2 ? sy : sx)) }];
             if (el.type !== "text") return [id, { x, y, w: Math.max(8, b.w * sx), h: Math.max(8, b.h * sy) }];
             // Text keeps its size; a side handle sets where it wraps.
@@ -630,6 +696,10 @@ export function Whiteboard({ data }: { data: Loaded }) {
           if (g.kind === "link" && draft && Math.hypot(p.x - g.start.x, p.y - g.start.y) * cam.current.z > 10) create(draft, false);
           if (g.kind === "pen" && draft) create(draft, false, true);
           if (g.kind === "pin") { setOpen(undefined); setPinning(g.pin); }
+          if (g.kind === "stick") {
+            const on = g.on && boxOf(g.on);
+            create({ type: "sticker", x: g.at.x - (on ? on.x : 0) - 20, y: g.at.y - (on ? on.y : 0) - 20, emoji: sticker, ...g.on && { on: g.on } }, false, true);
+          }
           if (g.kind === "erase" && g.hits.size) commit([...g.hits].map(id => ({ op: "delete", id }) as Op));
           setPreview({});
           setMarquee(undefined);
@@ -642,16 +712,25 @@ export function Whiteboard({ data }: { data: Loaded }) {
           const under = document.elementFromPoint(event.clientX, event.clientY);
           const p = toWorld(event), hit = under?.closest<HTMLElement>("[data-id]")?.dataset.id;
           const el = hit ? board.elements[hit] : undefined;
-          if (el?.type === "image" && !el.locked) { setSelected([hit!]); setCropping(hit); }
+          const at = under?.closest<HTMLElement>("[data-cell]")?.dataset.cell?.split(",").map(Number) as [number, number] | undefined;
+          if (el?.type === "table" && at && !el.locked) editCell(hit!, at);
+          else if (el?.type === "link" && typeof el.url === "string") window.open(el.url, "_blank", "noopener");
+          else if (el?.type === "image" && !el.locked) { setSelected([hit!]); setCropping(hit); }
           else if (el && hasText(el) && !el.locked) { setSelected([hit!]); setEditing(hit); }
           else if (!hit && tool === "select") create({ type: "text", x: p.x, y: p.y - 12, text: "" });
         }}>
         <div ref={world} className="world" style={{ transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.z})`, ["--z" as string]: camera.z }}>
           {board.order.map(id => {
             if (!board.elements[id]) return null;
-            const el = shown(id);
+            const el = placed(id);
             return <ElementView key={id} id={id} el={el} selected={live.includes(id) && !editing} editing={editing === id} resolve={resolve}
-              path={el.type === "arrow" ? pathOf(el) : undefined} faded={fading.includes(id)} onText={text => onText(id, text)} />;
+              path={el.type === "arrow" ? pathOf(el) : undefined} faded={fading.includes(id)} onText={text => onText(id, text)}
+              cell={editing === id ? cell : undefined} onTab={back => {
+                const rows = cellsOf(el), width = rows[0]!.length, n = (cell![0] * width + cell![1] + (back ? -1 : 1) + rows.length * width) % (rows.length * width);
+                editCell(id, [Math.floor(n / width), n % width]);
+              }}
+              live={live.length === 1 && live[0] === id && !busy && tool === "select"}
+              onSave={state => commit([{ op: "update", id, data: { state } }], false)} onEscape={() => setSelected([])} />;
           })}
           {draft && <ElementView id="" el={draft} selected={false} editing={false} resolve={resolve} path={draft.type === "arrow" ? pathOf(draft) : undefined} onText={() => {}} />}
           {cropping && board.elements[cropping] && (() => {
@@ -713,11 +792,23 @@ export function Whiteboard({ data }: { data: Loaded }) {
         return (
           <div className="selbar" style={{ left: area.x * camera.z + camera.x + (area.w * camera.z) / 2, top: Math.max(64, area.y * camera.z + camera.y - 56) }}
             onPointerDown={e => e.stopPropagation()}>
-            {!locked && has("shape", "note", "container") && fills.map(c => (
-              <button key={c} className={`swatch${ofType("shape", "note", "container").some(id => board.elements[id]!.color === c) ? " on" : ""}`} title={c}
-                style={{ background: `var(--fill-${c})` }} onClick={() => update(ofType("shape", "note", "container"), { color: c })} />
+            {!locked && has("shape", "note", "container", "table") && fills.map(c => (
+              <button key={c} className={`swatch${ofType("shape", "note", "container", "table").some(id => board.elements[id]!.color === c) ? " on" : ""}`}
+                title={single?.type === "table" ? `表头 ${c}` : c}
+                style={{ background: `var(--fill-${c})` }} onClick={() => update(ofType("shape", "note", "container", "table"), { color: c })} />
             ))}
-            {!locked && has("text", "arrow", "stroke") && <>{has("shape", "note", "container") && <span className="sep" />}{inks.map(c => (
+            {!locked && single?.type === "table" && <><span className="sep" />
+              <button className="t" title="在当前行下面加一行" onClick={() => reshape("row")}>+行</button>
+              <button className="t" title="在当前列右边加一列" onClick={() => reshape("column")}>+列</button>
+              <button className="t" title="删掉当前行" onClick={() => reshape("-row")}>−行</button>
+              <button className="t" title="删掉当前列" onClick={() => reshape("-column")}>−列</button>
+              <select title="热力图：按数字大小上色" value={typeof single.heat === "string" ? single.heat : ""} onChange={e => update(live, { heat: e.target.value || null })}>
+                <option value="">无热力图</option>
+                {fills.filter(c => c !== "white").map(c => <option key={c} value={c}>热力 {c}</option>)}
+              </select></>}
+            {single?.type === "link" && typeof single.url === "string" && <><span className="sep" />
+              <button className="t" onClick={() => window.open(single.url as string, "_blank", "noopener")}>打开</button></>}
+            {!locked && has("text", "arrow", "stroke") && <>{has("shape", "note", "container", "table") && <span className="sep" />}{inks.map(c => (
               <button key={c} className={`swatch${ofType("text", "arrow", "stroke").some(id => board.elements[id]!.color === c) ? " on" : ""}`} title={c}
                 style={{ background: `var(--ink-${c})` }} onClick={() => update(ofType("text", "arrow", "stroke"), { color: c })} />
             ))}</>}
@@ -782,6 +873,11 @@ export function Whiteboard({ data }: { data: Loaded }) {
           ))}
         </div>
       )}
+      {tool === "sticker" && (
+        <div className="wb-pen">
+          {stickers.map(s => <button key={s} className={`t sticker-pick${sticker === s ? " on" : ""}`} onClick={() => setSticker(s)}>{s}</button>)}
+        </div>
+      )}
       <div className="wb-tools">
         {toolNames.map(([t, name, key]) => (
           <button key={t} className={tool === t ? "on" : ""} title={key ? `${name}（${key}）` : name} onClick={() => setTool(t)}>{name}{key && <kbd>{key}</kbd>}</button>
@@ -801,10 +897,23 @@ export function Whiteboard({ data }: { data: Loaded }) {
           )}
         </span>
         <button title="放图片（也可以拖进来或粘贴）" onClick={() => picker.current?.click()}>图片</button>
+        <button title="放一张表格（也可以粘贴表格里复制的格子）" onClick={() => {
+          const at = viewCentre();
+          create({ type: "table", x: at.x - 150, y: at.y - 60, rows: [["列 1", "列 2", "列 3"], ["", "", ""], ["", "", ""]] }, false);
+        }}>表格</button>
         <input ref={picker} type="file" accept={imageTypes.join(",")} multiple hidden
           onChange={e => { void upload([...e.target.files ?? []], viewCentre()); e.target.value = ""; }} />
       </div>
+      {finding && <Find onClose={() => setFinding(false)}
+        find={query => board.order.filter(id => wordsOf(board.elements[id]!).toLowerCase().includes(query.toLowerCase()))}
+        onGo={id => { setSelected([id]); fit([id]); }} />}
       <div className="wb-zoom">
+        <Timer timer={board.timer} set={timer => commit([{ op: "meta", data: { timer } }], false)} />
+        <button title="查找（⌘F）" onClick={() => setFinding(true)}>查找</button>
+        <span className="menu-wrap">
+          <button title="下载白板" onClick={() => setMenu(!menu)}>下载</button>
+          {menu && <span className="menu"><button onClick={() => void save("png")}>图片 PNG</button><button onClick={() => void save("json")}>数据 JSON</button></span>}
+        </span>
         <button title="撤销（⌘Z）" onClick={() => step("undo")}>↶</button>
         <button title="重做（⇧⌘Z）" onClick={() => step("redo")}>↷</button>
         <button title="整块放进屏幕（⇧1）" onClick={() => fit()}>{Math.round(camera.z * 100)}%</button>

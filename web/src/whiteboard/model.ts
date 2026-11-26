@@ -3,7 +3,7 @@
 import type { Board, Element, Op, Stored } from "../../../src/board.ts";
 
 export { apply } from "../../../src/board.ts";
-export type { Board, Element, Op, Stored };
+export type { Board, Element, Op, Stored, Timer } from "../../../src/board.ts";
 
 export const fills = ["yellow", "peach", "pink", "green", "blue", "purple", "white"] as const;
 export const inks = ["ink", "terracotta", "blue", "green", "purple"] as const;
@@ -25,7 +25,23 @@ export const shapeNames: Record<string, string> = {
 export const hasText = (el: Element) => ["shape", "note", "container", "text", "arrow"].includes(el.type);
 
 /** The size a new element gets when it is placed with a click rather than drawn. */
-export const defaults: Record<string, { w: number; h: number }> = { shape: { w: 200, h: 120 }, note: { w: 200, h: 200 }, container: { w: 640, h: 400 } };
+export const defaults: Record<string, { w: number; h: number }> = {
+  shape: { w: 200, h: 120 }, note: { w: 200, h: 200 }, container: { w: 640, h: 400 }, html: { w: 480, h: 320 }, link: { w: 300, h: 88 }, sticker: { w: 40, h: 40 },
+};
+
+/** A table's cells as written, every row as long as the longest. */
+export const cellsOf = (el: Element): string[][] => {
+  const rows = Array.isArray(el.rows) ? (el.rows as unknown[]).map(row => Array.isArray(row) ? row.map(cell => cell == null ? "" : String(cell)) : []) : [];
+  const width = Math.max(1, ...rows.map(row => row.length));
+  return rows.map(row => [...row, ...Array<string>(width - row.length).fill("")]);
+};
+
+/** The words an element shows, for finding it. */
+export const wordsOf = (el: Element) => [el.text, el.label, el.placeholder, el.title, el.url, el.emoji, ...el.type === "table" ? cellsOf(el).flat() : []]
+  .filter(w => typeof w === "string").join("\n");
+
+/** Stickers people put on things. */
+export const stickers = ["👍", "❤️", "🔥", "⭐", "🎉", "✅", "❌", "❓"];
 
 export type Point = { x: number; y: number };
 export type Box = { x: number; y: number; w: number; h: number };

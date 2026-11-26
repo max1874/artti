@@ -13,14 +13,18 @@ export type Writer = "human" | "agent";
 /** Where an agent says it is at work: ground it will fill, or elements it will change. */
 export type Claim = { x?: number; y?: number; w?: number; h?: number; ids?: string[]; at: number };
 
-export type Board = { v: number; title?: string; order: string[]; elements: Record<string, Stored>; claims: Record<string, Claim> };
+/** The board's one countdown: running until `ends`, or paused with `left` ms to go. */
+export type Timer = { ends?: number; left?: number };
+
+export type Board = { v: number; title?: string; order: string[]; elements: Record<string, Stored>; claims: Record<string, Claim>; timer?: Timer };
 
 export type Op =
   | { op: "set"; id: string; data: Element; ifVersion?: number }
   /** Fields to change; a field given as null is removed. */
   | { op: "update"; id: string; data: Record<string, unknown>; ifVersion?: number }
   | { op: "delete"; id: string; ifVersion?: number }
-  | { op: "meta"; data: { title?: string; order?: string[] } }
+  /** A null `timer` stops it. */
+  | { op: "meta"; data: { title?: string; order?: string[]; timer?: Timer | null } }
   /** An empty `data` ends the claim. */
   | { op: "claim"; id: string; data: Partial<Claim> };
 
@@ -49,6 +53,8 @@ export function apply(board: Board, ops: Op[], by: Writer): Board {
   for (const op of ops) {
     if (op.op === "meta") {
       if (typeof op.data.title === "string") next.title = op.data.title;
+      if (op.data.timer === null) delete next.timer;
+      else if (op.data.timer) next.timer = { ...Number.isFinite(op.data.timer.ends) ? { ends: op.data.timer.ends } : { left: Math.max(0, Number(op.data.timer.left) || 0) } };
       // Every element keeps a place, whatever the order sent leaves out.
       if (Array.isArray(op.data.order)) {
         const listed = [...new Set(op.data.order.filter(id => id in next.elements))];
