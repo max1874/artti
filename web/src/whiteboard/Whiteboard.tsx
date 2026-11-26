@@ -1,11 +1,11 @@
 // The whiteboard editor: the board, its tools, and every gesture on it. docs/whiteboard.md.
 
 import { toCanvas } from "html-to-image";
-import { Find, Layers, Timer, download } from "./Extras.tsx";
+import { DrawPad, Find, Layers, Timer, dictate, download } from "./Extras.tsx";
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { type Event, type Loaded, asset } from "../api.ts";
 import { CommentBox, Conversation, Mark, Popover, useCtx } from "../canvas.tsx";
-import { ElementView, outline } from "./Element.tsx";
+import { Drawing, ElementView, outline } from "./Element.tsx";
 import {
   type Board, type Box, type Element, type Op, type Point, type TextSize,
   apply, boxOfPoints, cellsOf, contains, defaults, distanceToStroke, fieldsOf, filled, fills, fonts, hasText, headsOf, inks, inverse, meets, newId, route,
@@ -84,7 +84,11 @@ export function Whiteboard({ data }: { data: Loaded }) {
   const [space, setSpace] = useState(false);
   const [toast, setToast] = useState<string>();
   const [pinning, setPinning] = useState<Pin>();
-  const [sticker, setSticker] = useState(stickers[0]!);
+  // An emoji, or the lines of one the person drew.
+  const [sticker, setSticker] = useState<string | number[][]>(stickers[0]!);
+  const [drawPad, setDrawPad] = useState(false);
+  const stopListening = useRef<() => void>(undefined);
+  const [listening, setListening] = useState(false);
   // The table cell picked or last worked in: where rows and columns are added or taken out, and what a cell colour colours.
   const [cell, setCell] = useState<{ id: string; at: [number, number] }>();
   const [grid, setGrid] = useState(() => { try { return localStorage.getItem("artti.grid") !== "off"; } catch { return true; } });
@@ -104,12 +108,15 @@ export function Whiteboard({ data }: { data: Loaded }) {
 
   const resolve = (src: string) => asset(data.project.id, data.slug, src);
   const live = selected.filter(id => id in board.elements);
+  // What is drawn and can be picked: everything but what the person hid in the layers list, and the stickers on it.
+  const hidden = (id: unknown) => !!board.elements[id as string]?.hidden;
+  const visible = board.order.filter(id => !hidden(id) && !hidden(board.elements[id]!.on));
   const shown = (id: string) => ({ ...board.elements[id]!, ...preview[id] }) as Element;
-  const endBox = (id: string) => board.elements[id] && board.elements[id].type !== "arrow" ? boxOf(id) : undefined;
+  const endBox = (id: string) => board.elements[id] && board.elements[id].type !== "arrow" && !hidden(id) ? boxOf(id) : undefined;
   // What arrows go around: everything solid on the board, worked out once per render.
   let solids: { id: string; box: Box }[] | undefined;
   const pathOf = (el: Element) => {
-    solids ??= board.order.filter(id => !["arrow", "stroke", "sticker", "container"].includes(board.elements[id]!.type)).map(id => ({ id, box: boxOf(id) }));
+    solids ??= visible.filter(id => !["arrow", "stroke", "sticker", "container"].includes(board.elements[id]!.type)).map(id => ({ id, box: boxOf(id) }));
     return route(el, endBox, solids.filter(s => s.id !== el.from && s.id !== el.to).map(s => s.box));
   };
   /** Where a sticker on something sits: its x and y are from that thing's corner, so it goes where the thing goes. */
@@ -129,7 +136,7 @@ export function Whiteboard({ data }: { data: Loaded }) {
     return { x: el.x, y: el.y, w: el.w ?? measured?.w ?? defaults[el.type]?.w ?? 0, h: el.h ?? measured?.h ?? defaults[el.type]?.h ?? 0 };
   }
   /** The topmost thing an arrow can join at `p`. */
-  const joinable = (p: Point, except?: unknown) => [...board.order].reverse().find(id => id !== except &&
+  const joinable = (p: Point, except?: unknown) => [...visible].reverse().find(id => id !== except &&
     !["arrow", "stroke", "sticker"].includes(board.elements[id]!.type) && contains(boxOf(id), { ...p, w: 0, h: 0 }));
 
   const say = (text: string) => {
@@ -163,7 +170,7 @@ export function Whiteboard({ data }: { data: Loaded }) {
     setMenu(false);
     const name = data.page.title.replace(/[/\\:*?"<>|]+/gu, "-");
     if (as === "json") return download(`${name}.json`, URL.createObjectURL(new Blob([JSON.stringify(board, null, 1)], { type: "application/json" })));
-    const area = union(board.order.map(boxOf));
+    const area = union(visible.map(boxOf));
     if (!area) return say("白板是空的");
     const box = { x: area.x - 48, y: area.y - 48, w: area.w + 96, h: area.h + 96 };
     say("正在生成图片…");
@@ -231,7 +238,7 @@ export function Whiteboard({ data }: { data: Loaded }) {
 
   const fit = (ids?: string[]) => {
     const view = viewport.current!.getBoundingClientRect();
-    const target = union((ids ?? current.current.order).filter(id => id in current.current.elements).map(boxOf));
+    const target = union((ids ?? current.current.order).filter(id => id in current.current.elements && !current.current.elements[id]!.hidden).map(boxOf));
     if (!target) return setCamera({ x: view.width / 2, y: view.height / 2, z: 1 });
     const z = clamp(Math.min((view.width - 160) / target.w, (view.height - 220) / target.h), 0.1, ids ? 2 : 1);
     setCamera({ z, x: view.width / 2 - (target.x + target.w / 2) * z, y: view.height / 2 - (target.y + target.h / 2) * z });
@@ -272,14 +279,14 @@ export function Whiteboard({ data }: { data: Loaded }) {
     const all = new Set(ids);
     for (const id of ids) if (shown(id).type === "container") {
       const frame = boxOf(id);
-      for (const other of board.order) if (other !== id && contains(frame, boxOf(other))) all.add(other);
+      for (const other of visible) if (other !== id && contains(frame, boxOf(other))) all.add(other);
     }
     // A sticker on something that moves goes with it already.
     return unlocked([...all]).filter(id => !all.has(String(board.elements[id]?.on)));
   };
 
   /** A section is picked by its title or its edge; inside it, the person is working on what it holds. */
-  const sectionEdge = (p: Point) => [...board.order].reverse().find(id => {
+  const sectionEdge = (p: Point) => [...visible].reverse().find(id => {
     if (board.elements[id]?.type !== "container") return false;
     const b = boxOf(id), m = 8 / cam.current.z;
     const near = p.x > b.x - m && p.x < b.x + b.w + m && p.y > b.y - m && p.y < b.y + b.h + m;
@@ -419,6 +426,20 @@ export function Whiteboard({ data }: { data: Loaded }) {
     setEditing(id);
     setCell({ id, at });
   };
+  /** Dictation into the words being written; with none, into a new text in the middle of the view. */
+  const listen = () => {
+    if (stopListening.current) return stopListening.current();
+    const writing = () => document.activeElement instanceof HTMLElement && document.activeElement.closest(".editable");
+    if (!writing()) { const at = viewCentre(); create({ type: "text", x: at.x, y: at.y, text: "" }); }
+    // Once the new words box has the cursor.
+    requestAnimationFrame(() => {
+      setListening(true);
+      stopListening.current = dictate(
+        words => { if (writing()) document.execCommand("insertText", false, words); else stopListening.current?.(); },
+        problem => { stopListening.current = undefined; setListening(false); if (problem) say(problem); });
+      if (!stopListening.current) setListening(false);
+    });
+  };
   /** A comment begun on an element, pinned at its top right. */
   const commentOn = (id: string) => {
     const b = boxOf(id);
@@ -503,7 +524,7 @@ export function Whiteboard({ data }: { data: Loaded }) {
     if (event.key === " ") { setSpace(true); event.preventDefault(); return; }
     if (mod && key === "z") { event.preventDefault(); return step(event.shiftKey ? "redo" : "undo"); }
     if (mod && key === "y") { event.preventDefault(); return step("redo"); }
-    if (mod && key === "a") { event.preventDefault(); return setSelected(board.order); }
+    if (mod && key === "a") { event.preventDefault(); return setSelected(visible); }
     if (mod && key === "d") { event.preventDefault(); return duplicate(); }
     if (mod && key === "g") { event.preventDefault(); return event.shiftKey ? ungroup() : group(); }
     if (mod && key === "f") { event.preventDefault(); return setFinding(true); }
@@ -665,7 +686,7 @@ export function Whiteboard({ data }: { data: Loaded }) {
             const area = span(g.start, p);
             setMarquee(area);
             // A section is taken only whole; anything else as soon as the box meets it.
-            return setSelected(withGroups([...g.base, ...board.order.filter(id => !g.base.includes(id) &&
+            return setSelected(withGroups([...g.base, ...visible.filter(id => !g.base.includes(id) &&
               (board.elements[id]!.type === "container" ? contains(area, boxOf(id)) : meets(area, boxOf(id))))]));
           }
           if (g.kind === "draw") return setMarquee(span(g.start, p));
@@ -685,7 +706,7 @@ export function Whiteboard({ data }: { data: Loaded }) {
             return setDraft(d => d && { ...d, points: [...g.points] });
           }
           if (g.kind === "erase") {
-            for (const id of board.order) {
+            for (const id of visible) {
               const el = board.elements[id]!;
               if (el.type === "stroke" && !el.locked && distanceToStroke(el, p) < (Number(el.width) || 4) / 2 + 8 / cam.current.z) g.hits.add(id);
             }
@@ -746,7 +767,8 @@ export function Whiteboard({ data }: { data: Loaded }) {
           if (g.kind === "pin") { setOpen(undefined); setPinning(g.pin); }
           if (g.kind === "stick") {
             const on = g.on && boxOf(g.on);
-            create({ type: "sticker", x: g.at.x - (on ? on.x : 0) - 20, y: g.at.y - (on ? on.y : 0) - 20, emoji: sticker, ...g.on && { on: g.on } }, false, true);
+            create({ type: "sticker", x: g.at.x - (on ? on.x : 0) - 20, y: g.at.y - (on ? on.y : 0) - 20, ...g.on && { on: g.on },
+              ...typeof sticker === "string" ? { emoji: sticker } : { drawing: sticker, color: pen.color } }, false, true);
           }
           if (g.kind === "erase" && g.hits.size) commit([...g.hits].map(id => ({ op: "delete", id }) as Op));
           setPreview({});
@@ -768,8 +790,7 @@ export function Whiteboard({ data }: { data: Loaded }) {
           else if (!hit && tool === "select") create({ type: "text", x: p.x, y: p.y - 12, text: "" });
         }}>
         <div ref={world} className="world" style={{ transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.z})`, ["--z" as string]: camera.z }}>
-          {board.order.map(id => {
-            if (!board.elements[id]) return null;
+          {visible.map(id => {
             const el = placed(id);
             return <ElementView key={id} id={id} el={el} selected={live.includes(id) && !editing} editing={editing === id} resolve={resolve}
               path={el.type === "arrow" ? pathOf(el) : undefined} faded={fading.includes(id)} onText={text => onText(id, text)}
@@ -955,7 +976,11 @@ export function Whiteboard({ data }: { data: Loaded }) {
       )}
       {tool === "sticker" && (
         <div className="wb-pen">
-          {stickers.map(s => <button key={s} className={`t sticker-pick${sticker === s ? " on" : ""}`} onClick={() => setSticker(s)}>{s}</button>)}
+          {stickers.map(s => <button key={s} className={`t sticker-pick${sticker === s ? " on" : ""}`} onClick={() => { setSticker(s); setDrawPad(false); }}>{s}</button>)}
+          <span className="sep" />
+          {typeof sticker !== "string" && <button className="t sticker-pick on" title="画好的贴纸"><Drawing strokes={sticker} color="currentColor" size={22} /></button>}
+          <button className={`t${drawPad ? " on" : ""}`} onClick={() => setDrawPad(!drawPad)}>画一个</button>
+          {drawPad && <DrawPad onDone={strokes => { setSticker(strokes); setDrawPad(false); }} />}
         </div>
       )}
       <div className="wb-tools">
@@ -981,11 +1006,14 @@ export function Whiteboard({ data }: { data: Loaded }) {
           const at = viewCentre();
           create({ type: "table", x: at.x - 150, y: at.y - 60, rows: [["列 1", "列 2", "列 3"], ["", "", ""], ["", "", ""]] }, false);
         }}>表格</button>
+        <button className={listening ? "listening" : ""} title="听写：说话，文字写进正在写的地方（没有就新起一段）"
+          // Pressing it must not take the cursor out of the words being written.
+          onPointerDown={e => e.preventDefault()} onClick={listen}>{listening ? "停止听写" : "听写"}</button>
         <input ref={picker} type="file" accept={imageTypes.join(",")} multiple hidden
           onChange={e => { void upload([...e.target.files ?? []], viewCentre()); e.target.value = ""; }} />
       </div>
       {finding && <Find onClose={() => setFinding(false)}
-        find={query => board.order.filter(id => wordsOf(board.elements[id]!).toLowerCase().includes(query.toLowerCase()))}
+        find={query => visible.filter(id => wordsOf(board.elements[id]!).toLowerCase().includes(query.toLowerCase()))}
         onGo={id => { setSelected([id]); fit([id]); }} />}
       <div className="wb-zoom">
         <Timer timer={board.timer} set={timer => commit([{ op: "meta", data: { timer } }], false)} />
@@ -1003,6 +1031,8 @@ export function Whiteboard({ data }: { data: Loaded }) {
         <button title="放大（⌘=）" onClick={() => zoom(z => z * 1.25)}>+</button>
       </div>
       {layers && <Layers order={board.order} elements={board.elements} selected={live} onPick={(id, add) => setSelected(add ? live.includes(id) ? live.filter(i => i !== id) : [...live, id] : [id])}
+        onOrder={order => commit([{ op: "meta", data: { order } }])}
+        onHide={(id, hidden) => { commit([{ op: "update", id, data: { hidden: hidden || null } }]); if (hidden) setSelected(live.filter(i => i !== id)); }}
         onClose={() => setLayers(false)} />}
       {toast && <div className="wb-toast">{toast}</div>}
     </>

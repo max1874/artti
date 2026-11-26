@@ -1,6 +1,6 @@
 // One element drawn on the board, at its place in board units.
 
-import { type CSSProperties, type ReactNode, useLayoutEffect, useRef } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Embed } from "./Embed.tsx";
 import { type Element, type Point, boxOfPoints, cellsOf, dashOf, fill, fontOf, fontSize, halfway, headsOf, ink, smooth, strokePoints } from "./model.ts";
 
@@ -205,35 +205,7 @@ export function ElementView({ id, el, selected, editing, onText, path, resolve, 
         </div>
       );
     }
-    case "table": {
-      const rows = cellsOf(el), numbers = rows.slice(1).flat().filter(v => v.trim() && Number.isFinite(Number(v))).map(Number);
-      const low = Math.min(...numbers), high = Math.max(...numbers), fills = Array.isArray(el.fills) ? el.fills as (string | null)[][] : [];
-      // A heat map colours each number by where it falls between the smallest and the largest.
-      const heat = (value: string) => {
-        const n = Number(value);
-        if (!el.heat || !value.trim() || !Number.isFinite(n)) return;
-        return `color-mix(in srgb, ${fill(el.heat)} ${Math.round(18 + 72 * (high > low ? (n - low) / (high - low) : 1))}%, transparent)`;
-      };
-      return (
-        <table data-id={id} data-measure className={`el table${state}`} style={{ left: el.x, top: el.y, width: el.w, fontFamily: fontOf(el) }}>
-          <tbody>
-            {rows.map((row, r) => (
-              <tr key={r}>
-                {row.map((value, c) => {
-                  const Cell = r === 0 ? "th" : "td", picked = cell?.[0] === r && cell[1] === c, here = editing && picked;
-                  const background = (typeof fills[r]?.[c] === "string" ? fill(fills[r]![c]) : undefined) ?? (r === 0 && el.color ? fill(el.color) : heat(value));
-                  return (
-                    <Cell key={c} data-cell={`${r},${c}`} className={picked && selected ? "picked" : undefined} style={{ background }}>
-                      {here ? <Editable text={value} onDone={onText} onTab={onTab} /> : value ? <Rich text={value} /> : "​"}
-                    </Cell>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      );
-    }
+    case "table": return <TableView id={id} el={el} state={state} selected={selected} editing={editing} cell={cell} onText={onText} onTab={onTab} />;
     case "html": return (
       <div data-id={id} className={`el embed${state}${live ? " live" : ""}`} style={{ ...box, width: el.w ?? 480, height: el.h ?? 320 }}>
         {/* Under the page, for pictures of the board: a sandboxed page cannot be drawn from outside it. */}
@@ -256,9 +228,75 @@ export function ElementView({ id, el, selected, editing, onText, path, resolve, 
       );
     }
     case "sticker": return (
-      <div data-id={id} className={`el sticker${state}`} style={{ left: el.x, top: el.y }}>{String(el.emoji ?? "👍")}</div>
+      <div data-id={id} className={`el sticker${state}`} style={{ left: el.x, top: el.y }}>
+        {Array.isArray(el.drawing) ? <Drawing strokes={el.drawing as number[][]} color={ink(el.color)} /> : String(el.emoji ?? "👍")}
+      </div>
     );
     // The rest of the set arrives in later steps of docs/whiteboard.md; until then each shows where it is.
     default: return <div data-id={id} className={`el pending${state}`} style={{ ...box, width: el.w ?? 160, height: el.h ?? 60 }}>{el.type}</div>;
   }
+}
+
+/** A sticker someone drew: its lines in a 40 by 40 square. */
+export function Drawing({ strokes, color, size = 40 }: { strokes: number[][]; color: string; size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 40 40" overflow="visible">
+      {strokes.map((flat, i) => (
+        <path key={i} d={smooth(flat.flatMap((v, j) => j % 2 ? [] : [{ x: v, y: flat[j + 1] ?? v }]))} fill="none" stroke={color}
+          strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+      ))}
+    </svg>
+  );
+}
+
+const pageSize = 20;
+
+/** A table, a page of its rows at a time when it is long: the page is the viewer's own, the rows the board's. */
+function TableView({ id, el, state, selected, editing, cell, onText, onTab }: {
+  id: string; el: Element; state: string; selected: boolean; editing: boolean; cell?: [number, number];
+  onText: (text: string) => void; onTab?: (back: boolean) => void;
+}) {
+  const rows = cellsOf(el), numbers = rows.slice(1).flat().filter(v => v.trim() && Number.isFinite(Number(v))).map(Number);
+  const low = Math.min(...numbers), high = Math.max(...numbers), fills = Array.isArray(el.fills) ? el.fills as (string | null)[][] : [];
+  const pages = Math.max(1, Math.ceil((rows.length - 1) / pageSize));
+  const [page, setPage] = useState(0);
+  const shown = Math.min(page, pages - 1);
+  // The cell being edited is always on the page in view, wherever Tab took it.
+  useEffect(() => { if (editing && cell && cell[0] > 0) setPage(Math.floor((cell[0] - 1) / pageSize)); }, [editing, cell?.[0]]);
+  // A heat map colours each number by where it falls between the smallest and the largest.
+  const heat = (value: string) => {
+    const n = Number(value);
+    if (!el.heat || !value.trim() || !Number.isFinite(n)) return;
+    return `color-mix(in srgb, ${fill(el.heat)} ${Math.round(18 + 72 * (high > low ? (n - low) / (high - low) : 1))}%, transparent)`;
+  };
+  const visible = [0, ...rows.slice(1).map((_, i) => i + 1).slice(shown * pageSize, (shown + 1) * pageSize)];
+  return (
+    // Nothing around it gives it a width: without one of its own, it is as wide as its words.
+    <table data-id={id} data-measure className={`el table${state}`} style={{ left: el.x, top: el.y, width: el.w ?? "max-content", fontFamily: fontOf(el) }}>
+      <tbody>
+        {visible.map(r => (
+          <tr key={r}>
+            {rows[r]!.map((value, c) => {
+              const Cell = r === 0 ? "th" : "td", picked = cell?.[0] === r && cell[1] === c, here = editing && picked;
+              const background = (typeof fills[r]?.[c] === "string" ? fill(fills[r]![c]) : undefined) ?? (r === 0 && el.color ? fill(el.color) : heat(value));
+              return (
+                <Cell key={c} data-cell={`${r},${c}`} className={picked && selected ? "picked" : undefined} style={{ background }}>
+                  {here ? <Editable text={value} onDone={onText} onTab={onTab} /> : value ? <Rich text={value} /> : "​"}
+                </Cell>
+              );
+            })}
+          </tr>
+        ))}
+      </tbody>
+      {pages > 1 && (
+        <tfoot>
+          <tr><td colSpan={rows[0]!.length} className="pager" onPointerDown={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
+            <button disabled={shown === 0} onClick={() => setPage(shown - 1)}>‹</button>
+            <span>{shown + 1} / {pages} 页 · {rows.length - 1} 行</span>
+            <button disabled={shown === pages - 1} onClick={() => setPage(shown + 1)}>›</button>
+          </td></tr>
+        </tfoot>
+      )}
+    </table>
+  );
 }

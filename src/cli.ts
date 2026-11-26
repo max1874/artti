@@ -95,7 +95,7 @@ function screenOf(target?: string) {
 
 /** An element in a line: its id, type and words. */
 function named(id: string, el?: Element) {
-  if (el?.type === "sticker") return `${id} sticker ${String(el.emoji)}${el.on ? ` on ${String(el.on)}` : ""}`;
+  if (el?.type === "sticker") return `${id} sticker ${el.drawing ? "✏️ (drawn)" : String(el.emoji)}${el.on ? ` on ${String(el.on)}` : ""}`;
   const header = el?.type === "table" && Array.isArray(el.rows) && Array.isArray(el.rows[0]) ? (el.rows[0] as unknown[]).join(" | ") : undefined;
   const words = el && [header, el.text, el.label, el.title, el.url, el.placeholder && `guess: ${el.placeholder}`].find(w => typeof w === "string" && w.trim()) as string | undefined;
   return `${id} ${el?.type ?? "(gone)"}${words ? ` “${words.replace(/\s+/gu, " ").slice(0, 60)}”` : ""}`;
@@ -167,7 +167,7 @@ function looked(slug: string) {
   // Stickers on things are votes: when any changed, the count as it stands.
   if (changes.some(line => line.includes(" sticker "))) {
     const votes = new Map<string, string[]>();
-    for (const el of Object.values(now.elements)) if (el.type === "sticker" && typeof el.on === "string") votes.set(el.on, [...votes.get(el.on) ?? [], String(el.emoji)]);
+    for (const el of Object.values(now.elements)) if (el.type === "sticker" && typeof el.on === "string") votes.set(el.on, [...votes.get(el.on) ?? [], el.drawing ? "✏️" : String(el.emoji)]);
     for (const [on, all] of [...votes].sort((a, b) => b[1].length - a[1].length))
       changes.push(`VOTES on ${named(on, now.elements[on])}: ${[...new Set(all)].map(e => `${e}×${all.filter(x => x === e).length}`).join(" ")}`);
   }

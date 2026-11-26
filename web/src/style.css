@@ -401,3 +401,17 @@ p { margin: 0; }
 .wb-layers .type { display: inline-block; min-width: 34px; color: var(--sub); }
 .wb-layers i { color: var(--faint); }
 .selbar input[type="color"] { width: 28px; height: 24px; padding: 0; border: 0; background: none; }
+.wb-layers li { display: flex; align-items: center; gap: 4px; }
+.wb-layers li .words { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.wb-layers li.over { box-shadow: inset 0 2px 0 var(--select); }
+.wb-layers li.hidden .words, .wb-layers li.hidden .type { opacity: 0.4; }
+.wb-layers .eye { border: 0; background: none; padding: 0 4px; color: var(--sub); font-size: 11px; visibility: hidden; }
+.wb-layers li:hover .eye, .wb-layers li.hidden .eye { visibility: visible; }
+.el.table .pager { text-align: center; padding: 4px; color: var(--sub); font-size: 12px; background: var(--frame); }
+.el.table .pager button { border: 0; background: none; padding: 0 10px; font-size: 16px; color: inherit; }
+.el.table .pager button:disabled { opacity: 0.3; }
+.el.sticker svg { display: block; }
+.draw-pad { position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); padding: 8px; background: var(--frame); border-radius: 12px; box-shadow: var(--shadow); }
+.draw-pad svg { display: block; background: var(--canvas); border-radius: 8px; touch-action: none; cursor: crosshair; color: var(--ink-ink); }
+.draw-pad .row { display: flex; justify-content: space-between; gap: 6px; margin-top: 6px; font-size: 13px; }
+.wb-tools button.listening { background: var(--pin); color: white; }

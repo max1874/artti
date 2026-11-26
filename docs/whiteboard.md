@@ -127,12 +127,12 @@ Each step ends in something Max can use and that has been checked in a browser.
 
 ## Not yet matched (2026-11-26)
 
-After the pass that followed step 4, these are still missing:
+On one machine, the whiteboard now has everything above except:
 
-- **Stickers** are emoji only: there are no hand-drawn stickers, and no face sticker standing for a person, since one machine has one person.
-- **Tables** are not split into pages when long.
-- **Layers:** the list picks elements but does not drag them into a new order or hide them; a drawing has no layers of its own.
-- **Voice:** dictation. macOS dictation works in any text box meanwhile.
+- **A face sticker standing for a person.** With one person on one machine there is no one else to tell apart; it comes with sharing.
 - **Many people:** everything in "Many people", which waits for sharing.
 
-Pictures of the board show an embed as a label, because a sandboxed page cannot be drawn from outside it; a site that refuses to be embedded shows its address instead.
+Two limits that come from the browser:
+
+- **Pictures of embeds.** Pictures of the board show an embed as a label, because a sandboxed page cannot be drawn from outside it. A site that refuses to be embedded shows its address instead.
+- **Dictation goes to a speech service.** The browser does the listening: Chrome sends the sound to Google's speech service, and Safari sends it to Apple's. macOS dictation (press fn twice) also works in any text box.
