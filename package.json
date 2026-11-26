@@ -2,6 +2,7 @@
   "name": "artti",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "Pages an agent puts its work on, and a way to answer on them that reaches the agent.",
   "type": "module",
   "bin": {
