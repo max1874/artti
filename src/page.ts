@@ -42,7 +42,7 @@ export type VerifyBody = { screens: string[]; unverified: Unverified[] };
 export type Option = { id: string; title: string; image?: string; html?: string; note?: string; recommended?: boolean };
 export type BoardBody = { question: string; options: Option[] };
 
-export type Kind = "comment" | "reply" | "pick" | "verdict" | "submit";
+export type Kind = "comment" | "reply" | "resolve" | "pick" | "verdict" | "submit";
 export type Verdict = "pass" | "reject" | "waive";
 
 export type Event = {
@@ -50,16 +50,16 @@ export type Event = {
   at: number;
   by: "human" | "agent";
   kind: Kind;
-  /** What it is about, e.g. "screens/mac-chat/v5", or "board" for a note anywhere on the board. */
+  /** What it is about, e.g. "screens/mac-chat/v5", "elements/e4" on a whiteboard, or "board" for a note anywhere on the board. */
   target?: string;
-  /** Where a comment is: on a frame, a point or an area (w, h) as fractions of it; on the board, its pixels. */
+  /** Where a comment is: on a frame, a point or an area (w, h) as fractions of it; on a whiteboard element, board units from its corner; on the board, its pixels. */
   spot?: { x: number; y: number; w?: number; h?: number };
   /** A comment's picture of the spot it marks, cut from the image: a path inside `.artti/`. */
   crop?: string;
   text?: string;
   /** A verdict's value, or the option picked. */
   value?: string;
-  /** For a reply, the comment it answers. */
+  /** For a reply, the comment it answers; for a resolve, the comment it closes. */
   to?: string;
 };
 

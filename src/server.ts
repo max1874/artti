@@ -6,7 +6,7 @@ import { extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Event } from "./page.ts";
 import { Conflict, type Op } from "./board.ts";
-import { append, board, home, imageTypes, keep, label, place, write, pagesDir, projectId, projects, read, safe, screen, screens, slugs } from "./store.ts";
+import { append, board, home, imageTypes, keep, keepView, label, place, write, pagesDir, projectId, projects, read, safe, screen, screens, slugs } from "./store.ts";
 
 export const defaultPort = 7317;
 const web = fileURLToPath(new URL("../web/dist/", import.meta.url));
@@ -75,7 +75,8 @@ export function serve(port = defaultPort) {
       if (watchers.has(root)) continue;
       try {
         watchers.set(root, watch(pagesDir(root), { recursive: true }, (_, name) => {
-          if (name) notify(projectId(root), String(name).split(sep)[0]!);
+          // Where the person is looking changes all the time and is for the agent, not for other pages.
+          if (name && !String(name).endsWith("view.json")) notify(projectId(root), String(name).split(sep)[0]!);
         }));
       } catch {}
     }
@@ -136,13 +137,21 @@ export function serve(port = defaultPort) {
             throw error;
           }
         }
+        // What the person has selected, in view and being edited on a whiteboard.
+        if (parts[1] === "view" && parts.length === 4 && request.method === "POST") {
+          const root = rootOf(parts[2]!);
+          if (!root) return send(response, 404, { error: "no such project" });
+          const { selected, viewport, editing } = await body<{ selected: string[]; viewport: { x: number; y: number; w: number; h: number }; editing?: string }>(request);
+          keepView(root, safe(parts[3]!), { selected: Array.isArray(selected) ? selected.slice(0, 200) : [], viewport, editing });
+          return send(response, 200, {});
+        }
         if (parts[1] === "page" && parts.length === 4) {
           const root = rootOf(parts[2]!);
           if (!root) return send(response, 404, { error: "no such project" });
           const slug = safe(parts[3]!);
           if (request.method === "POST") {
             const event = await body(request);
-            if (!["comment", "pick", "verdict", "submit"].includes(event.kind ?? "")) return send(response, 400, { error: "unknown kind" });
+            if (!["comment", "resolve", "pick", "verdict", "submit"].includes(event.kind ?? "")) return send(response, 400, { error: "unknown kind" });
             const { kind, target, spot, text, value, to } = event;
             // A comment's picture of its spot arrives as a PNG data URL and is kept as a file.
             const png = "data:image/png;base64,";

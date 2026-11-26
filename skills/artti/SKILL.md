@@ -86,6 +86,10 @@ artti board image shot.png                # copies a picture into the page; prin
   - Inks: ink, terracotta, blue, green, purple.
   - Any `#rrggbb` works for either.
   - `text` may use `**bold**`, `*italic*`, `` `code` ``, `[label](https://…)` and lines starting `- ` or `1. `.
+- **Working with the person on it:**
+  - **"This box", "here":** run `artti board view` first. It prints what they have selected, in view and are editing, and what they added, changed, moved, deleted or answered since you last looked. Your own writes never show up there.
+  - **Comments:** they pin comments to elements (or to a point on the board), and each comment is their message to you. `artti wait` returns as soon as one arrives, with the element it is on, a picture of the spot, and the same view and changes. Do what it asks. Then answer with `artti reply --to <id> --done "<what you did>"`, which also resolves the thread; leave out `--done` when you are asking something back.
+  - **Open questions:** ask them on the board: a `text` with the question, and under it a `text` with an empty `text` and your guess as `placeholder`. Build on the guess in the meantime. When they type over it, `artti board view` reports `ANSWERED`.
 - **Groups:** elements sharing an id in `groups` (innermost first) are picked and moved as one.
 - **Lay out from one thing outward:** leave 24 between neighbours, give the whole the shape the idea has (a line, a loop, a tree, lanes), and lead with a title and one sentence. Never rebuild a board: change only what changes, and leave what the person placed where they put it.
 

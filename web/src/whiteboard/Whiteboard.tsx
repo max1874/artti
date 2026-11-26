@@ -1,7 +1,9 @@
 // The whiteboard editor: the board, its tools, and every gesture on it. docs/whiteboard.md.
 
+import { toCanvas } from "html-to-image";
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
-import { type Loaded, asset } from "../api.ts";
+import { type Event, type Loaded, asset } from "../api.ts";
+import { CommentBox, Conversation, Mark, Popover, useCtx } from "../canvas.tsx";
 import { ElementView, outline } from "./Element.tsx";
 import {
   type Board, type Box, type Element, type Op, type Point, type TextSize,
@@ -9,14 +11,14 @@ import {
   shapeKinds, shapeNames, sizeNames, span, strokeBox, textSizes, union,
 } from "./model.ts";
 
-type Tool = "select" | "hand" | "text" | "note" | "container" | "shape" | "arrow" | "pen" | "eraser";
+type Tool = "select" | "hand" | "text" | "note" | "container" | "shape" | "arrow" | "pen" | "eraser" | "comment";
 const toolKeys: Record<string, Tool> = {
-  v: "select", h: "hand", t: "text", s: "note", n: "note", a: "container", f: "container", r: "shape", o: "shape", d: "shape", l: "arrow", x: "arrow", p: "pen", m: "pen",
+  v: "select", h: "hand", t: "text", s: "note", n: "note", a: "container", f: "container", r: "shape", o: "shape", d: "shape", l: "arrow", x: "arrow", p: "pen", m: "pen", c: "comment",
 };
 const kindKeys: Record<string, string> = { r: "rounded", o: "ellipse", d: "diamond" };
 const toolNames: [Tool, string, string][] = [
   ["select", "选择", "V"], ["hand", "抓手", "H"], ["text", "文字", "T"], ["note", "便签", "S"], ["container", "分区", "A"],
-  ["arrow", "箭头", "L"], ["pen", "钢笔", "P"], ["eraser", "橡皮", ""],
+  ["arrow", "箭头", "L"], ["pen", "钢笔", "P"], ["eraser", "橡皮", ""], ["comment", "评论", "C"],
 ];
 const penWidths = [2, 4, 8];
 const imageTypes = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml"];
@@ -32,9 +34,13 @@ type Gesture =
   | { kind: "end"; id: string; which: "from" | "to" }
   | { kind: "pen"; origin: Point; points: number[] }
   | { kind: "erase"; hits: Set<string> }
-  | { kind: "crop"; id: string; start: Point; origin: { zoom: number; x: number; y: number }; box: Box };
+  | { kind: "crop"; id: string; start: Point; origin: { zoom: number; x: number; y: number }; box: Box }
+  | { kind: "pin"; pin: Pin };
 
 const handles = ["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const;
+/** A comment's place: on an element, board units from its corner, so it moves with it; or a point on the board. */
+type Pin = { target: string; spot: Point };
+const notPictured = ".pin, .mark, .popover, .frame-sel, .claim, .end-handle, .marquee, .crop-frame";
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 async function post(project: string, slug: string, ops: Op[]) {
@@ -75,6 +81,9 @@ export function Whiteboard({ data }: { data: Loaded }) {
   const [marquee, setMarquee] = useState<Box>();
   const [space, setSpace] = useState(false);
   const [toast, setToast] = useState<string>();
+  const [pinning, setPinning] = useState<Pin>();
+  const [open, setOpen] = useState<string>();
+  const ctx = useCtx(data);
   const toastTimer = useRef<number>(undefined);
   const gesture = useRef<Gesture | null>(null);
   const pointer = useRef<Point>({ x: 0, y: 0 });
@@ -105,6 +114,46 @@ export function Whiteboard({ data }: { data: Loaded }) {
     setToast(text);
     clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(undefined), 1800);
+  };
+
+  // Comments: those still open, each placed where its element now is.
+  const resolved = new Set(data.events.filter(e => e.kind === "resolve").map(e => e.to));
+  const comments = data.events.filter(e => e.kind === "comment" && e.spot && !resolved.has(e.id) && (e.target === "board" || e.target?.startsWith("elements/")));
+  const placeOf = ({ target, spot }: Pin | Event): Point | undefined => {
+    if (target === "board") return spot;
+    const id = target!.slice("elements/".length);
+    if (!board.elements[id]) return;
+    const b = boxOf(id);
+    return { x: b.x + spot!.x, y: b.y + spot!.y };
+  };
+  const pinOn = (id: string | undefined, p: Point): Pin => {
+    if (!id) return { target: "board", spot: p };
+    const b = boxOf(id);
+    return { target: `elements/${id}`, spot: { x: p.x - b.x, y: p.y - b.y } };
+  };
+  /** A picture of the board around what a comment is about, the spot ringed: what the agent looks at. */
+  const picture = async (pin: Pin) => {
+    const at = placeOf(pin)!, area = pin.target === "board" ? { x: at.x - 160, y: at.y - 110, w: 320, h: 220 } : boxOf(pin.target.slice(9));
+    const box = { x: Math.min(area.x, at.x) - 60, y: Math.min(area.y, at.y) - 60, w: 0, h: 0 };
+    box.w = Math.max(area.x + area.w, at.x) + 60 - box.x;
+    box.h = Math.max(area.y + area.h, at.y) + 60 - box.y;
+    const ratio = Math.min(2, 2400 / Math.max(box.w, box.h));
+    try {
+      const canvas = await toCanvas(world.current!, {
+        width: box.w, height: box.h, pixelRatio: ratio, skipFonts: true, backgroundColor: getComputedStyle(viewport.current!).backgroundColor,
+        style: { transform: `translate(${-box.x}px, ${-box.y}px)` },
+        filter: node => !(node instanceof HTMLElement && node.matches(notPictured)),
+      });
+      const g = canvas.getContext("2d")!;
+      g.strokeStyle = "#e5484d";
+      g.lineWidth = 3 * ratio;
+      g.beginPath();
+      g.arc((at.x - box.x) * ratio, (at.y - box.y) * ratio, 14 * ratio, 0, Math.PI * 2);
+      g.stroke();
+      return canvas.toDataURL("image/png");
+    } catch {
+      return undefined;
+    }
   };
 
   /** One change by the person: shown at once, kept on the server, and undoable unless it is an undo itself. */
@@ -159,6 +208,19 @@ export function Whiteboard({ data }: { data: Loaded }) {
     const view = viewport.current!.getBoundingClientRect();
     return { x: (event.clientX - view.left - cam.current.x) / cam.current.z, y: (event.clientY - view.top - cam.current.y) / cam.current.z };
   };
+  // What the person has picked, in view and being edited: the agent reads it with `artti board view`.
+  const looking = JSON.stringify([selected, camera, editing]);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const view = viewport.current!.getBoundingClientRect();
+      const a = toWorld({ clientX: view.left, clientY: view.top }), b = toWorld({ clientX: view.right, clientY: view.bottom });
+      void fetch(`/api/view/${data.project.id}/${encodeURIComponent(data.slug)}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ selected: selected.filter(id => id in current.current.elements), viewport: { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y }, editing }),
+      }).catch(() => {});
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [looking]);
   const viewCentre = () => {
     const view = viewport.current!.getBoundingClientRect();
     return toWorld({ clientX: view.left + view.width / 2, clientY: view.top + view.height / 2 });
@@ -263,6 +325,12 @@ export function Whiteboard({ data }: { data: Loaded }) {
   };
   const update = (ids: string[], data: Record<string, unknown>) => commit(unlocked(ids).map(id => ({ op: "update", id, data }) as Op));
   const ofType = (...types: string[]) => live.filter(id => types.includes(board.elements[id]!.type));
+  /** A comment begun on an element, pinned at its top right. */
+  const commentOn = (id: string) => {
+    const b = boxOf(id);
+    setOpen(undefined);
+    setPinning(pinOn(id, { x: b.x + b.w, y: b.y }));
+  };
 
   const group = () => {
     if (live.length < 2) return;
@@ -352,7 +420,8 @@ export function Whiteboard({ data }: { data: Loaded }) {
     if (mod && event.shiftKey && key === "l") { event.preventDefault(); return live.length && lock(); }
     if (event.key === "]" || event.key === "[") { event.preventDefault(); return live.length && reorder(event.key === "]" ? (mod ? "front" : "forward") : (mod ? "back" : "backward")); }
     if (event.key === "Backspace" || event.key === "Delete") return remove();
-    if (event.key === "Escape") { setSelected([]); setTool("select"); setKinds(false); setCropping(undefined); return; }
+    if (event.key === "Escape") { setSelected([]); setTool("select"); setKinds(false); setCropping(undefined); setPinning(undefined); setOpen(undefined); return; }
+    if (event.key === "Tab" && live.length === 1) { event.preventDefault(); return commentOn(live[0]!); }
     if (event.key === "Enter" && cropping) return setCropping(undefined);
     if (event.key === "Enter" && live.length === 1 && hasText(board.elements[live[0]!]!) && !board.elements[live[0]!]!.locked) { event.preventDefault(); return setEditing(live[0]); }
     if (event.key.startsWith("Arrow") && live.length) {
@@ -414,7 +483,7 @@ export function Whiteboard({ data }: { data: Loaded }) {
 
   return (
     <>
-      <div ref={viewport} className={`wb ${space || tool === "hand" ? "hand" : tool === "select" ? "" : tool === "text" ? "texting" : "drawing"}`}
+      <div ref={viewport} className={`wb ${space || tool === "hand" ? "hand" : tool === "select" ? "" : tool === "text" ? "texting" : tool === "comment" ? "commenting" : "drawing"}`}
         onDragOver={event => event.preventDefault()}
         onDrop={event => { event.preventDefault(); void upload([...event.dataTransfer.files], toWorld(event)); }}
         onPointerDown={event => {
@@ -429,7 +498,10 @@ export function Whiteboard({ data }: { data: Loaded }) {
           const endHandle = target.closest<HTMLElement>("[data-end]")?.dataset.end as "from" | "to" | undefined;
           const hit = target.closest<HTMLElement>("[data-id]")?.dataset.id;
           if (cropping && hit !== cropping) setCropping(undefined);
-          if (endHandle && single) {
+          if (tool === "comment") {
+            // Opened when the button comes up, like a new text, so the box keeps the focus.
+            gesture.current = { kind: "pin", pin: pinOn(hit, p) };
+          } else if (endHandle && single) {
             gesture.current = { kind: "end", id: live[0]!, which: endHandle };
           } else if (handle && frame) {
             gesture.current = { kind: "resize", start: p, handle, frame, origin: new Map(unlocked().map(id => [id, { box: boxOf(id), el: shown(id) }])) };
@@ -507,6 +579,7 @@ export function Whiteboard({ data }: { data: Loaded }) {
             }
             return setFading([...g.hits]);
           }
+          if (g.kind === "pin") return;
           if (g.kind === "crop") {
             const zoom = g.origin.zoom;
             if (zoom <= 1) return;
@@ -556,6 +629,7 @@ export function Whiteboard({ data }: { data: Loaded }) {
           }
           if (g.kind === "link" && draft && Math.hypot(p.x - g.start.x, p.y - g.start.y) * cam.current.z > 10) create(draft, false);
           if (g.kind === "pen" && draft) create(draft, false, true);
+          if (g.kind === "pin") { setOpen(undefined); setPinning(g.pin); }
           if (g.kind === "erase" && g.hits.size) commit([...g.hits].map(id => ({ op: "delete", id }) as Op));
           setPreview({});
           setMarquee(undefined);
@@ -598,6 +672,37 @@ export function Whiteboard({ data }: { data: Loaded }) {
             return <span key={which} className="end-handle" data-end={which} style={{ left: at.x, top: at.y }} />;
           })}
           {marquee && <div className="marquee" style={{ left: marquee.x, top: marquee.y, width: marquee.w, height: marquee.h }} />}
+          <div className="wb-pins" onPointerDown={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
+            {comments.map((comment, i) => {
+              const at = placeOf(comment);
+              return at && <Mark key={comment.id} spot={at} n={i + 1} z={camera.z} px
+                onClick={() => { setPinning(undefined); setOpen(open === comment.id ? undefined : comment.id); }} />;
+            })}
+            {pinning && placeOf(pinning) && <>
+              <Mark spot={placeOf(pinning)!} n={comments.length + 1} z={camera.z} px draft />
+              <Popover spot={placeOf(pinning)!} z={camera.z} px>
+                <CommentBox placeholder={pinning.target === "board" ? "这里想怎么改…" : "这个想怎么改…"} autoFocus onCancel={() => setPinning(undefined)}
+                  onSend={async text => {
+                    await ctx.send({ kind: "comment", target: pinning.target, spot: pinning.spot, text, crop: await picture(pinning) });
+                    setPinning(undefined);
+                    setTool("select");
+                    say("已发给 agent");
+                  }} />
+              </Popover>
+            </>}
+            {(() => {
+              const comment = comments.find(c => c.id === open), at = comment && placeOf(comment);
+              return at && (
+                <Popover spot={at} z={camera.z} px>
+                  <Conversation ctx={ctx} comment={comment} />
+                  <div className="thread-actions">
+                    <button className="quiet" onClick={async () => { await ctx.send({ kind: "resolve", to: comment.id }); setOpen(undefined); }}>解决</button>
+                    <button className="quiet" onClick={() => setOpen(undefined)}>关闭</button>
+                  </div>
+                </Popover>
+              );
+            })()}
+          </div>
         </div>
       </div>
 
@@ -656,6 +761,7 @@ export function Whiteboard({ data }: { data: Loaded }) {
               <button className="t" title="编组（⌘G）" onClick={group}>编组</button></>}
             {live.some(id => (board.elements[id]!.groups as string[] | undefined)?.length) && <button className="t" title="取消编组（⇧⌘G）" onClick={ungroup}>解组</button>}
             <span className="sep" />
+            {live.length === 1 && <button className="t" title="评论，发给 agent（Tab）" onClick={() => commentOn(live[0]!)}>评论</button>}
             {!locked && <><button className="t" title="置顶（⌘]）" onClick={() => reorder("front")}>置顶</button>
               <button className="t" title="置底（⌘[）" onClick={() => reorder("back")}>置底</button></>}
             <button className="t" title="锁定（⇧⌘L）" onClick={lock}>{locked ? "解锁" : "锁定"}</button>

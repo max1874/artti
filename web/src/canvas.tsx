@@ -240,7 +240,7 @@ function Pins({ target, px, picture }: { target: string; px?: boolean; picture?:
 }
 
 /** A numbered pin at a point, or at the corner of the area it marks. */
-function Mark({ spot, n, z, px, draft, onClick }: { spot: Spot; n: number; z: number; px?: boolean; draft?: boolean; onClick?: () => void }) {
+export function Mark({ spot, n, z, px, draft, onClick }: { spot: Spot; n: number; z: number; px?: boolean; draft?: boolean; onClick?: () => void }) {
   return (
     <>
       {spot.w !== undefined && <span className={`mark${draft ? " draft" : ""}`}
@@ -252,7 +252,7 @@ function Mark({ spot, n, z, px, draft, onClick }: { spot: Spot; n: number; z: nu
 }
 
 /** Kept at reading size whatever the zoom, beside the spot it is about. */
-function Popover({ spot, z, px, children }: { spot: Spot; z: number; px?: boolean; children: ReactNode }) {
+export function Popover({ spot, z, px, children }: { spot: Spot; z: number; px?: boolean; children: ReactNode }) {
   return (
     <div className="popover" style={{ left: pos(spot.x + (spot.w ?? 0), px), top: pos(spot.y, px), transform: `translate(16px, -12px) scale(${1 / z})` }}
       onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
@@ -284,7 +284,7 @@ function cropOf(image: HTMLImageElement, spot: Spot) {
   return canvas.toDataURL("image/png");
 }
 
-function Conversation({ ctx, comment }: { ctx: Ctx; comment: Event }) {
+export function Conversation({ ctx, comment }: { ctx: Ctx; comment: Event }) {
   return (
     <div className="conversation">
       <p>{comment.text}<time>{ago(comment.at)}</time></p>

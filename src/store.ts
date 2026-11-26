@@ -112,10 +112,11 @@ export function latest(root: string) {
 
 export const label = (root: string) => basename(root);
 
-// Assets stay on this machine unless the project chose otherwise (docs/design.md, Storage).
+// Assets stay on this machine unless the project chose otherwise (docs/design.md, Storage); so does what the viewer and
+// the agent keep about where they are: the view, what the agent last saw, and the last answer it reported.
 function ignoreAssets(root: string) {
   mkdirSync(pagesDir(root), { recursive: true });
-  writeFileSync(join(pagesDir(root), ".gitignore"), "**/assets/\n");
+  writeFileSync(join(pagesDir(root), ".gitignore"), "**/assets/\n**/view.json\n**/.seen.json\n**/.reported\n");
 }
 
 const screensDir = (root: string) => join(pagesDir(root), "screens");
@@ -200,3 +201,15 @@ export function imageSize(bytes: Buffer): { w: number; h: number } | undefined {
     }
   }
 }
+
+/** What the person has in front of them on a whiteboard, as the page last told the server. */
+export type View = { selected: string[]; viewport: { x: number; y: number; w: number; h: number }; editing?: string; at: number };
+export const view = (root: string, slug: string) => json<View | undefined>(join(pagesDir(root), safe(slug), "view.json"), undefined);
+export function keepView(root: string, slug: string, value: Omit<View, "at">) {
+  writeFileSync(join(pagesDir(root), safe(slug), "view.json"), JSON.stringify({ ...value, at: Date.now() }));
+}
+
+/** A whiteboard's elements as the agent last saw them, so it can be told what the person changed since. */
+const seenPath = (root: string, slug: string) => join(pagesDir(root), safe(slug), ".seen.json");
+export const seen = (root: string, slug: string) => json<Board["elements"] | undefined>(seenPath(root, slug), undefined);
+export const see = (root: string, slug: string, elements: Board["elements"]) => writeFileSync(seenPath(root, slug), JSON.stringify(elements));

@@ -115,7 +115,7 @@ Each step ends in something Max can use and that has been checked in a browser.
    - Pen and eraser.
    - Images: dragged in, pasted or uploaded, and cropped.
    - Group, align and tidy up.
-3. **The agent loop.**
+3. **The agent loop.** Done 2026-11-26.
    - View context: what is selected, in view or being edited.
    - Comments pinned to elements, each with a cut-out picture.
    - Open questions shown with the agent's guess.

@@ -345,3 +345,6 @@ p { margin: 0; }
   position: absolute; left: 0; top: 100%; margin-top: 6px; transform-origin: 0 0; transform: scale(calc(1 / var(--z)));
   font-size: 12px; color: var(--sub); white-space: nowrap;
 }
+.wb.commenting { cursor: cell; }
+.wb-pins .popover { z-index: 5; }
+.thread-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }
