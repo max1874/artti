@@ -72,15 +72,15 @@ artti board image shot.png                # copies a picture into the page; prin
 
   | Type | Fields |
   |---|---|
-  | `shape` | `kind`: rounded, rect, ellipse, diamond, pill, hexagon, parallelogram, database, queue, document, cloud or person. `x y w h`, `text`, `color`, `size`, `stroke`, `hollow`, `textAlign`. |
+  | `shape` | `kind`: rounded, rect, ellipse, diamond, pill, hexagon, parallelogram, database, queue, document, cloud or person. `x y w h`, `text`, `color`, `size`, `stroke` (an outline's ink) with `dash` (true or "dot"), `hollow`, `textAlign`. |
   | `container` | A section: `x y w h`, `text` (its title, drawn 28 above the box), `color`. Write it before what it holds; it goes behind. |
   | `text` | `x y`, `text`, `size`, `wrap` (a width), `color`, `textAlign`, `placeholder` (a grey guess for the person to type over). |
   | `note` | The person's sticky notes. Read them; don't make them. |
-  | `arrow` | No `x y`: `from` and `to`, each an element id (it follows that element) or a point `[x, y]`. `label`, `color` (an ink), `dash: true`, `heads: [start, end]` of none, arrow or circle (default `["none","arrow"]`). Routed in right angles between facing sides; `fromSide`/`toSide` (top, right, bottom, left) pick others, and `bends: ["h" or "v", offsets…]` plans the legs. |
+  | `arrow` | No `x y`: `from` and `to`, each an element id (it follows that element) or a point `[x, y]`. `label`, `color` (an ink), `dash` (true or "dot"), `heads: [start, end]` of none, arrow or circle (default `["none","arrow"]`). Routed in right angles between facing sides, and around elements in the way; `fromSide`/`toSide` (top, right, bottom, left) pick others, and `bends: ["h" or "v", offsets…]` plans the legs. |
   | `stroke` | A pen line: `x y`, `points` `[dx, dy, …]` from x, y (a point repeated makes a corner), `color`, `width`. |
   | `image` | `x y w h`, `src` from `artti board image`; `crop: {zoom, x, y}` (zoom ≥ 1, x and y 0–1 pick the middle). |
   | `table` | `x y`, `w` (optional), `rows`: a list of rows of strings; row 1 is the header. `color` (a fill) colours the header, `heat` (a fill) colours each number by its size, `fills` is a matching grid of fills or null. |
-  | `html` | A working page in a sandbox: `x y w h`, `html` (a whole small page, 200 KB at most), `state`. In the page, `onLoad(state => …)` runs with the kept state now and whenever it changes, `save(state)` keeps a new one, and `await load()` reads it. What people enter stays in `state`, which you can read and write too. |
+  | `html` | A working page in a sandbox: `x y w h`, and either `src` (an https page of another site, if it allows being embedded) or `html` (a whole small page, 200 KB at most) with `state`. In the page, `onLoad(state => …)` runs with the kept state now and whenever it changes, `save(state)` keeps a new one, and `await load()` reads it. What people enter stays in `state`, which you can read and write too. |
   | `link` | A card that opens a page: `x y`, `url` (`artti url <page>` for another artti page), `title`, `kind` (whiteboard, verify, board, doc, deck or page), `note`. |
   | `sticker` | The person's emoji, `emoji`, stuck `on` an element with `x y` from its corner. Read them as votes; `artti board view` counts them. |
 
@@ -89,6 +89,7 @@ artti board image shot.png                # copies a picture into the page; prin
   - Fills: yellow, peach, pink, green, blue, purple, white.
   - Inks: ink, terracotta, blue, green, purple.
   - Any `#rrggbb` works for either.
+  - Fonts (`font` on shapes, notes, text, sections and tables): sans (the default), serif, mono, hand.
   - `text` may use `**bold**`, `*italic*`, `` `code` ``, `[label](https://…)` and lines starting `- ` or `1. `.
 - **Working with the person on it:**
   - **"This box", "here":** run `artti board view` first. It prints what they have selected, in view and are editing, and what they added, changed, moved, deleted or answered since you last looked. Your own writes never show up there.

@@ -15,6 +15,19 @@ export type TextSize = keyof typeof textSizes;
 export const sizeNames: Record<TextSize, string> = { small: "小", body: "正文", large: "大", title: "标题", huge: "特大" };
 export const fontSize = (el: Element, fallback = 16) => textSizes[el.size as TextSize] ?? fallback;
 
+export const fonts: Record<string, { name: string; family?: string }> = {
+  sans: { name: "默认" }, serif: { name: "衬线", family: 'ui-serif, "Songti SC", Georgia, serif' },
+  mono: { name: "等宽", family: 'ui-monospace, "SF Mono", Menlo, monospace' }, hand: { name: "手写", family: '"Kaiti SC", STKaiti, "Comic Sans MS", cursive' },
+};
+export const fontOf = (el: Element) => fonts[String(el.font)]?.family;
+/** A line's dashes: `dash` true for dashes, "dot" for dots. */
+export const dashOf = (el: Element) => el.dash === "dot" ? "1.5 5" : el.dash ? "7 6" : undefined;
+
+/** What "paste style" carries: everything about how an element looks, nothing about what or where it is. */
+export const styleKeys = ["color", "stroke", "hollow", "size", "textAlign", "font", "dash", "heads", "head", "width", "heat"];
+/** Elements coloured from the fills; the rest are coloured from the inks. */
+export const filled = (el: Element) => ["shape", "note", "container", "table"].includes(el.type);
+
 export const shapeKinds = ["rounded", "rect", "ellipse", "diamond", "pill", "hexagon", "parallelogram", "database", "queue", "document", "cloud", "person"] as const;
 export const shapeNames: Record<string, string> = {
   rounded: "圆角", rect: "方形", ellipse: "椭圆", diamond: "菱形", pill: "胶囊", hexagon: "六边形", parallelogram: "平行四边形",
@@ -96,10 +109,11 @@ const isBox = (end: Box | Point): end is Box => "w" in end;
 
 /**
  * An arrow's route, in right-angle legs from the middle of one side to the middle of another, or one straight line where
- * the jog between facing sides would be under 44. `bends` (["v"|"h", …offsets]) plans the legs instead: the first half of
- * the offsets from the centre of `from`, the rest from the centre of `to`.
+ * the jog between facing sides would be under 44; when that runs through one of `solids`, a way around them. `bends`
+ * (["v"|"h", …offsets]) plans the legs instead: the first half of the offsets from the centre of `from`, the rest from the
+ * centre of `to`.
  */
-export function route(el: Element, boxOf: (id: string) => Box | undefined): Point[] | undefined {
+export function route(el: Element, boxOf: (id: string) => Box | undefined, solids: Box[] = []): Point[] | undefined {
   const a = endOf(el.from, boxOf), b = endOf(el.to, boxOf);
   if (!a || !b) return;
   const A = isBox(a) ? a : { ...a, w: 0, h: 0 }, B = isBox(b) ? b : { ...b, w: 0, h: 0 };
@@ -129,9 +143,20 @@ export function route(el: Element, boxOf: (id: string) => Box | undefined): Poin
   // A point end goes the way the other end's side does.
   const ha = isBox(a) ? horizontal(sa) : isBox(b) ? horizontal(sb) : Math.abs(q.x - p.x) >= Math.abs(q.y - p.y);
   const hb = isBox(b) ? horizontal(sb) : ha;
+  const plain = direct(A, B, p, q, ha, hb, isBox(a) && isBox(b));
+  // Only what lies between the ends can be in the way.
+  const near = solids.filter(s => meets(s, { x: Math.min(p.x, q.x) - 400, y: Math.min(p.y, q.y) - 400, w: Math.abs(p.x - q.x) + 800, h: Math.abs(p.y - q.y) + 800 }));
+  if (!near.some(s => plain.some((point, i) => i > 0 && crosses(plain[i - 1]!, point, s)))) return plain;
+  // Going around, an end may leave by any side, its own first, unless the arrow names it.
+  const ends = (end: Box | Point, box: Box, side: Side, named: boolean): End[] => !isBox(end) ? [{ at: end }]
+    : (named ? [side] : sides).map(s => ({ at: sideMiddle(box, s), side: s, extra: s === side ? 0 : 30 }));
+  return around(ends(a, A, sa, typeof el.fromSide === "string"), ends(b, B, sb, typeof el.toSide === "string"), near) ?? plain;
+}
+
+function direct(A: Box, B: Box, p: Point, q: Point, ha: boolean, hb: boolean, boxes: boolean): Point[] {
   if (ha && hb) {
     const overlap = [Math.max(A.y, B.y), Math.min(A.y + A.h, B.y + B.h)] as const;
-    if (Math.abs(p.y - q.y) < 44 && overlap[0] <= overlap[1] && isBox(a) && isBox(b)) {
+    if (Math.abs(p.y - q.y) < 44 && overlap[0] <= overlap[1] && boxes) {
       const y = Math.min(overlap[1], Math.max(overlap[0], (p.y + q.y) / 2));
       return [{ x: p.x, y }, { x: q.x, y }];
     }
@@ -140,7 +165,7 @@ export function route(el: Element, boxOf: (id: string) => Box | undefined): Poin
   }
   if (!ha && !hb) {
     const overlap = [Math.max(A.x, B.x), Math.min(A.x + A.w, B.x + B.w)] as const;
-    if (Math.abs(p.x - q.x) < 44 && overlap[0] <= overlap[1] && isBox(a) && isBox(b)) {
+    if (Math.abs(p.x - q.x) < 44 && overlap[0] <= overlap[1] && boxes) {
       const x = Math.min(overlap[1], Math.max(overlap[0], (p.x + q.x) / 2));
       return [{ x, y: p.y }, { x, y: q.y }];
     }
@@ -148,6 +173,103 @@ export function route(el: Element, boxOf: (id: string) => Box | undefined): Poin
     return tidyRoute([p, { x: p.x, y: my }, { x: q.x, y: my }, q]);
   }
   return tidyRoute(ha ? [p, { x: q.x, y: p.y }, q] : [p, { x: p.x, y: q.y }, q]);
+}
+
+/** Whether a straight leg from a to b passes through the inside of box s (running along its edge does not). */
+const crosses = (a: Point, b: Point, s: Box) => a.y === b.y
+  ? a.y > s.y && a.y < s.y + s.h && Math.max(a.x, b.x) > s.x && Math.min(a.x, b.x) < s.x + s.w
+  : a.x > s.x && a.x < s.x + s.w && Math.max(a.y, b.y) > s.y && Math.min(a.y, b.y) < s.y + s.h;
+
+const sides: Side[] = ["top", "right", "bottom", "left"];
+const steps: Record<Side, Point> = { top: { x: 0, y: -1 }, bottom: { x: 0, y: 1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } };
+/** A place an arrow can leave or arrive: a side's middle (and what taking a side other than its own costs), or a free point. */
+type End = { at: Point; side?: Side; extra?: number };
+const detours = new Map<string, Point[] | undefined>();
+
+/**
+ * The way between one of `starts` and one of `goals` in right angles around `solids`, kept `gap` clear of them: the fewest
+ * bends, then the shortest. It runs on the lines along the solids' edges and through the ends, a short way out from each side.
+ */
+function around(starts: End[], goals: End[], solids: Box[]): Point[] | undefined {
+  const key = JSON.stringify([starts, goals, solids]);
+  if (detours.has(key)) return detours.get(key);
+  if (detours.size > 400) detours.clear();
+  const gap = 20, out = ({ at, side }: End) => side ? { x: at.x + steps[side].x * gap, y: at.y + steps[side].y * gap } : at;
+  const inside = (e: Point, b: Box) => e.x > b.x && e.x < b.x + b.w && e.y > b.y && e.y < b.y + b.h;
+  // A solid hugging an end's own side cannot be kept clear of: it is passed as close as it is. Other sides it closes.
+  const own = [starts, goals].map(list => out(list.find(e => !e.extra)!));
+  const pads = solids.map(b => ({ x: b.x - gap, y: b.y - gap, w: b.w + 2 * gap, h: b.h + 2 * gap })).filter(b => !own.some(e => inside(e, b)));
+  const open = (list: End[]) => list.map(e => ({ ...e, stub: out(e) })).filter(e => !e.extra || !pads.some(b => inside(e.stub, b)));
+  const from = open(starts), to = open(goals);
+  const xs = [...new Set([...from, ...to].map(e => e.stub.x).concat(pads.flatMap(b => [b.x, b.x + b.w])))].sort((a, b) => a - b);
+  const ys = [...new Set([...from, ...to].map(e => e.stub.y).concat(pads.flatMap(b => [b.y, b.y + b.h])))].sort((a, b) => a - b);
+  const at = (i: number, j: number) => ({ x: xs[i]!, y: ys[j]! });
+  const free = (a: Point, b: Point) => !pads.some(pad => crosses(a, b, pad));
+  // Dijkstra over (column, row, heading); a turn costs as much as 120 of length, so fewer bends win over a shorter way.
+  const turn = 120, size = xs.length * ys.length * 4, cost = new Float64Array(size).fill(Infinity), back = new Int32Array(size).fill(-1);
+  const index = (i: number, j: number, d: number) => (j * xs.length + i) * 4 + d;
+  const heading = (side?: Side) => side ? ["top", "right", "bottom", "left"].indexOf(side) : -1;
+  const moves = [[0, -1], [1, 0], [0, 1], [-1, 0]] as const;
+  const queue: [number, number][] = [];
+  const push = (state: number, c: number) => {
+    if (c >= cost[state]!) return false;
+    cost[state] = c;
+    queue.push([c, state]);
+    for (let k = queue.length - 1; k > 0;) {
+      const up = (k - 1) >> 1;
+      if (queue[up]![0] <= c) break;
+      [queue[k], queue[up]] = [queue[up]!, queue[k]!];
+      k = up;
+    }
+    return true;
+  };
+  const pop = () => {
+    const top = queue[0]!, last = queue.pop()!;
+    if (queue.length) {
+      queue[0] = last;
+      for (let k = 0; ;) {
+        const l = 2 * k + 1, r = l + 1;
+        let m = k;
+        if (l < queue.length && queue[l]![0] < queue[m]![0]) m = l;
+        if (r < queue.length && queue[r]![0] < queue[m]![0]) m = r;
+        if (m === k) break;
+        [queue[k], queue[m]] = [queue[m]!, queue[k]!];
+        k = m;
+      }
+    }
+    return top;
+  };
+  const cellOf = (p: Point) => ys.indexOf(p.y) * xs.length + xs.indexOf(p.x);
+  for (const e of from) for (let d = 0; d < 4; d++) if (!e.side || d === heading(e.side)) push(cellOf(e.stub) * 4 + d, e.extra ?? 0);
+  const first = new Map(from.map(e => [cellOf(e.stub), e]));
+  let best = -1, bestCost = Infinity, goal: (typeof to)[number] | undefined;
+  while (queue.length) {
+    const [c, state] = pop();
+    if (c > cost[state]! || c >= bestCost) continue;
+    const d = state % 4, cell = state >> 2, i = cell % xs.length, j = Math.floor(cell / xs.length);
+    for (const e of to) if (e.stub.x === xs[i] && e.stub.y === ys[j]) {
+      const total = c + (e.extra ?? 0) + (e.side && d !== (heading(e.side) + 2) % 4 ? turn : 0);
+      if (total < bestCost) { bestCost = total; best = state; goal = e; }
+    }
+    for (let nd = 0; nd < 4; nd++) {
+      if (nd === (d + 2) % 4) continue;
+      const ni = i + moves[nd]![0], nj = j + moves[nd]![1];
+      if (ni < 0 || nj < 0 || ni >= xs.length || nj >= ys.length) continue;
+      const a = at(i, j), b = at(ni, nj);
+      if (!free(a, b)) continue;
+      if (push(index(ni, nj, nd), c + Math.abs(b.x - a.x) + Math.abs(b.y - a.y) + (nd === d ? 0 : turn))) back[index(ni, nj, nd)] = state;
+    }
+  }
+  let result: Point[] | undefined;
+  if (best >= 0) {
+    const path: Point[] = [];
+    let state = best;
+    for (; back[state]! >= 0; state = back[state]!) path.unshift(at((state >> 2) % xs.length, Math.floor((state >> 2) / xs.length)));
+    const start = first.get(state >> 2)!;
+    result = tidyRoute([start.at, start.stub, ...path, goal!.at]);
+  }
+  detours.set(key, result);
+  return result;
 }
 
 /** Without repeated points or points in the middle of a straight run. */

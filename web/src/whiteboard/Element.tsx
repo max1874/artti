@@ -2,7 +2,7 @@
 
 import { type CSSProperties, type ReactNode, useLayoutEffect, useRef } from "react";
 import { Embed } from "./Embed.tsx";
-import { type Element, type Point, boxOfPoints, cellsOf, fill, fontSize, halfway, headsOf, ink, smooth, strokePoints } from "./model.ts";
+import { type Element, type Point, boxOfPoints, cellsOf, dashOf, fill, fontOf, fontSize, halfway, headsOf, ink, smooth, strokePoints } from "./model.ts";
 
 /** The outline of a block of `kind`, `w` by `h`. */
 export function outline(kind: unknown, w: number, h: number): ReactNode {
@@ -106,7 +106,7 @@ function head(kind: string, tip: Point, from: Point, color: string) {
 
 export function ElementView({ id, el, selected, editing, onText, path, resolve, faded, cell, onTab, live, onSave, onEscape }: {
   id: string; el: Element; selected: boolean; editing: boolean; onText: (text: string) => void;
-  /** The table cell being edited, and where Tab goes from it. */
+  /** The table cell picked or being edited, and where Tab goes from it. */
   cell?: [number, number];
   onTab?: (back: boolean) => void;
   /** An embed takes the pointer only when it is the one thing picked. */
@@ -123,7 +123,7 @@ export function ElementView({ id, el, selected, editing, onText, path, resolve, 
   const words = (size: number, style?: CSSProperties) => editing
     ? <Editable text={text} onDone={onText} style={{ fontSize: size, textAlign: (el.textAlign as CSSProperties["textAlign"]) ?? undefined, ...style }} />
     : text ? <Rich text={text} /> : null;
-  const box: CSSProperties = { left: el.x, top: el.y, width: el.w, height: el.h };
+  const box: CSSProperties = { left: el.x, top: el.y, width: el.w, height: el.h, fontFamily: fontOf(el) };
   const state = `${selected ? " selected" : ""}${el.locked ? " locked" : ""}${faded ? " faded" : ""}`;
   switch (el.type) {
     case "shape": {
@@ -131,7 +131,8 @@ export function ElementView({ id, el, selected, editing, onText, path, resolve, 
       return (
         <div data-id={id} className={`el shape${state}`} style={box}>
           <svg className="outline" width={w} height={h} overflow="visible"
-            fill={el.hollow ? "none" : fill(el.color)} stroke={el.stroke ? ink(el.stroke) : el.hollow ? ink("ink") : "none"} strokeWidth={2}>
+            fill={el.hollow ? "none" : fill(el.color)} stroke={el.stroke ? ink(el.stroke) : el.hollow ? ink("ink") : "none"} strokeWidth={2}
+            strokeDasharray={dashOf(el)} strokeLinecap="round">
             {outline(el.kind, w, h)}
           </svg>
           <div className="words" style={{ fontSize: size, textAlign: (el.textAlign as CSSProperties["textAlign"]) ?? "center" }}>
@@ -157,7 +158,7 @@ export function ElementView({ id, el, selected, editing, onText, path, resolve, 
       return (
         <div data-id={id} data-measure className={`el text${state}${placeholder ? " placeholder" : ""}`}
           style={{ left: el.x, top: el.y, width: typeof el.wrap === "number" ? el.wrap : undefined, whiteSpace: typeof el.wrap === "number" ? "pre-wrap" : "pre",
-            fontSize: size, color: ink(el.color), textAlign: (el.textAlign as CSSProperties["textAlign"]) ?? "left", fontWeight: size >= 28 ? 650 : undefined }}>
+            fontSize: size, color: ink(el.color), fontFamily: fontOf(el), textAlign: (el.textAlign as CSSProperties["textAlign"]) ?? "left", fontWeight: size >= 28 ? 650 : undefined }}>
           {placeholder ? el.placeholder as string : words(size, { minWidth: 8 })}
         </div>
       );
@@ -192,7 +193,7 @@ export function ElementView({ id, el, selected, editing, onText, path, resolve, 
         <div data-id={id} className={`el arrow${state}`} style={{ left: b.x, top: b.y, width: b.w, height: b.h }}>
           <svg width={b.w} height={b.h} overflow="visible">
             <path className="hit" d={d} strokeWidth={14} />
-            <path d={d} fill="none" stroke={color} strokeWidth={2} strokeDasharray={el.dash ? "7 6" : undefined} strokeLinejoin="round" />
+            <path d={d} fill="none" stroke={color} strokeWidth={2} strokeDasharray={dashOf(el)} strokeLinecap="round" strokeLinejoin="round" />
             {head(start, local[0]!, local[1]!, color)}
             {head(end, local.at(-1)!, local.at(-2)!, color)}
           </svg>
@@ -214,15 +215,15 @@ export function ElementView({ id, el, selected, editing, onText, path, resolve, 
         return `color-mix(in srgb, ${fill(el.heat)} ${Math.round(18 + 72 * (high > low ? (n - low) / (high - low) : 1))}%, transparent)`;
       };
       return (
-        <table data-id={id} data-measure className={`el table${state}`} style={{ left: el.x, top: el.y, width: el.w }}>
+        <table data-id={id} data-measure className={`el table${state}`} style={{ left: el.x, top: el.y, width: el.w, fontFamily: fontOf(el) }}>
           <tbody>
             {rows.map((row, r) => (
               <tr key={r}>
                 {row.map((value, c) => {
-                  const Cell = r === 0 ? "th" : "td", here = editing && cell?.[0] === r && cell[1] === c;
+                  const Cell = r === 0 ? "th" : "td", picked = cell?.[0] === r && cell[1] === c, here = editing && picked;
                   const background = (typeof fills[r]?.[c] === "string" ? fill(fills[r]![c]) : undefined) ?? (r === 0 && el.color ? fill(el.color) : heat(value));
                   return (
-                    <Cell key={c} data-cell={`${r},${c}`} style={{ background }}>
+                    <Cell key={c} data-cell={`${r},${c}`} className={picked && selected ? "picked" : undefined} style={{ background }}>
                       {here ? <Editable text={value} onDone={onText} onTab={onTab} /> : value ? <Rich text={value} /> : "​"}
                     </Cell>
                   );
@@ -236,9 +237,9 @@ export function ElementView({ id, el, selected, editing, onText, path, resolve, 
     case "html": return (
       <div data-id={id} className={`el embed${state}${live ? " live" : ""}`} style={{ ...box, width: el.w ?? 480, height: el.h ?? 320 }}>
         {/* Under the page, for pictures of the board: a sandboxed page cannot be drawn from outside it. */}
-        <div className="embed-label">网页 · 在白板上打开看</div>
+        <div className="embed-label">{typeof el.src === "string" ? `${el.src} · 打不开时是对方不让嵌入` : "网页 · 在白板上打开看"}</div>
         {selected && <div className="embed-grip">{live ? "拖这里移动 · 网页里可以直接操作" : "网页"}</div>}
-        <Embed html={typeof el.html === "string" ? el.html : ""} state={el.state} live={!!live} onSave={state => onSave?.(state)} onEscape={() => onEscape?.()} />
+        <Embed html={typeof el.html === "string" ? el.html : ""} src={typeof el.src === "string" ? el.src : undefined} state={el.state} live={!!live} onSave={state => onSave?.(state)} onEscape={() => onEscape?.()} />
       </div>
     );
     case "link": {

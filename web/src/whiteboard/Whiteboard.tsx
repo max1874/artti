@@ -1,15 +1,15 @@
 // The whiteboard editor: the board, its tools, and every gesture on it. docs/whiteboard.md.
 
 import { toCanvas } from "html-to-image";
-import { Find, Timer, download } from "./Extras.tsx";
+import { Find, Layers, Timer, download } from "./Extras.tsx";
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { type Event, type Loaded, asset } from "../api.ts";
 import { CommentBox, Conversation, Mark, Popover, useCtx } from "../canvas.tsx";
 import { ElementView, outline } from "./Element.tsx";
 import {
   type Board, type Box, type Element, type Op, type Point, type TextSize,
-  apply, boxOfPoints, cellsOf, contains, defaults, distanceToStroke, fieldsOf, fills, hasText, headsOf, inks, inverse, meets, newId, route,
-  shapeKinds, shapeNames, sizeNames, span, stickers, strokeBox, textSizes, union, wordsOf,
+  apply, boxOfPoints, cellsOf, contains, defaults, distanceToStroke, fieldsOf, filled, fills, fonts, hasText, headsOf, inks, inverse, meets, newId, route,
+  shapeKinds, shapeNames, sizeNames, span, stickers, strokeBox, styleKeys, textSizes, union, wordsOf,
 } from "./model.ts";
 
 type Tool = "select" | "hand" | "text" | "note" | "container" | "shape" | "arrow" | "pen" | "eraser" | "comment" | "sticker";
@@ -85,9 +85,12 @@ export function Whiteboard({ data }: { data: Loaded }) {
   const [toast, setToast] = useState<string>();
   const [pinning, setPinning] = useState<Pin>();
   const [sticker, setSticker] = useState(stickers[0]!);
-  const [cell, setCell] = useState<[number, number]>();
-  // The table cell last worked in: where rows and columns are added or taken out.
-  const lastCell = useRef<{ id: string; at: [number, number] }>(undefined);
+  // The table cell picked or last worked in: where rows and columns are added or taken out, and what a cell colour colours.
+  const [cell, setCell] = useState<{ id: string; at: [number, number] }>();
+  const [grid, setGrid] = useState(() => { try { return localStorage.getItem("artti.grid") !== "off"; } catch { return true; } });
+  const [layers, setLayers] = useState(false);
+  const style = useRef<Element>(undefined);
+  const pickColour = useRef<(colour: string) => void>(null);
   const [finding, setFinding] = useState(false);
   const [menu, setMenu] = useState(false);
   const [open, setOpen] = useState<string>();
@@ -103,7 +106,12 @@ export function Whiteboard({ data }: { data: Loaded }) {
   const live = selected.filter(id => id in board.elements);
   const shown = (id: string) => ({ ...board.elements[id]!, ...preview[id] }) as Element;
   const endBox = (id: string) => board.elements[id] && board.elements[id].type !== "arrow" ? boxOf(id) : undefined;
-  const pathOf = (el: Element) => route(el, endBox);
+  // What arrows go around: everything solid on the board, worked out once per render.
+  let solids: { id: string; box: Box }[] | undefined;
+  const pathOf = (el: Element) => {
+    solids ??= board.order.filter(id => !["arrow", "stroke", "sticker", "container"].includes(board.elements[id]!.type)).map(id => ({ id, box: boxOf(id) }));
+    return route(el, endBox, solids.filter(s => s.id !== el.from && s.id !== el.to).map(s => s.box));
+  };
   /** Where a sticker on something sits: its x and y are from that thing's corner, so it goes where the thing goes. */
   const stuckTo = (el: Element) => el.type === "sticker" && typeof el.on === "string" && board.elements[el.on] ? boxOf(el.on) : undefined;
   const placed = (id: string): Element => {
@@ -292,10 +300,9 @@ export function Whiteboard({ data }: { data: Loaded }) {
     const el = current.current.elements[id];
     if (!el) return;
     if (el.type === "table") {
-      if (!cell) return;
-      const rows = cellsOf(el);
-      setCell(undefined);
-      if (rows[cell[0]]![cell[1]] !== text) commit([{ op: "update", id, data: { rows: rows.map((row, r) => r === cell[0] ? row.map((v, c) => c === cell[1] ? text : v) : row) } }]);
+      if (cell?.id !== id) return;
+      const rows = cellsOf(el), [r0, c0] = cell.at;
+      if (rows[r0]![c0] !== text) commit([{ op: "update", id, data: { rows: rows.map((row, r) => r === r0 ? row.map((v, c) => c === c0 ? text : v) : row) } }]);
       return;
     }
     const field = el.type === "arrow" ? "label" : "text";
@@ -363,20 +370,54 @@ export function Whiteboard({ data }: { data: Loaded }) {
   const ofType = (...types: string[]) => live.filter(id => types.includes(board.elements[id]!.type));
   /** Rows or columns added after, or taken out at, the cell last worked in (the last one when none was). */
   const reshape = (how: "row" | "column" | "-row" | "-column") => {
-    const id = live[0]!, rows = cellsOf(board.elements[id]!);
-    const [r, c] = lastCell.current?.id === id ? lastCell.current.at : [rows.length - 1, rows[0]!.length - 1];
-    const next = how === "row" ? [...rows.slice(0, r + 1), rows[0]!.map(() => ""), ...rows.slice(r + 1)]
-      : how === "column" ? rows.map(row => [...row.slice(0, c + 1), "", ...row.slice(c + 1)])
-      : how === "-row" ? rows.length > 1 ? rows.filter((_, i) => i !== r) : rows
-      : rows[0]!.length > 1 ? rows.map(row => row.filter((_, i) => i !== c)) : rows;
-    lastCell.current = undefined;
-    commit([{ op: "update", id, data: { rows: next } }]);
+    const id = live[0]!, el = board.elements[id]!, rows = cellsOf(el);
+    const [r, c] = cell?.id === id ? cell.at : [rows.length - 1, rows[0]!.length - 1];
+    if ((how === "-row" && rows.length < 2) || (how === "-column" && rows[0]!.length < 2)) return;
+    // Cell colours move with their cells.
+    const fillsNow = rows.map((row, i) => row.map((_, j) => (el.fills as (string | null)[][] | undefined)?.[i]?.[j] ?? null));
+    const change = <T,>(grid: T[][], blank: T) => how === "row" ? [...grid.slice(0, r + 1), grid[0]!.map(() => blank), ...grid.slice(r + 1)]
+      : how === "column" ? grid.map(row => [...row.slice(0, c + 1), blank, ...row.slice(c + 1)])
+      : how === "-row" ? grid.filter((_, i) => i !== r) : grid.map(row => row.filter((_, j) => j !== c));
+    setCell(undefined);
+    commit([{ op: "update", id, data: { rows: change(rows, ""), ...el.fills ? { fills: change(fillsNow, null) } : {} } }]);
+  };
+  const colourCell = (colour: string | null) => {
+    const id = live[0]!, el = board.elements[id]!, rows = cellsOf(el);
+    if (cell?.id !== id) return say("先点一下要上色的格子");
+    const grid = rows.map((row, i) => row.map((_, j) => (el.fills as (string | null)[][] | undefined)?.[i]?.[j] ?? null));
+    grid[cell.at[0]]![cell.at[1]] = colour;
+    commit([{ op: "update", id, data: { fills: grid.some(row => row.some(Boolean)) ? grid : null } }]);
+  };
+  /** Style taken from the first picked element, given to the others: colour only between elements coloured alike. */
+  const copyStyle = () => {
+    style.current = live.length ? fieldsOf(board.elements[live[0]!]!) : undefined;
+    say(style.current ? "已复制样式" : "先选一个元素");
+  };
+  const pasteStyle = () => {
+    const from = style.current;
+    if (!from) return say("还没复制样式");
+    commit(unlocked().map(id => {
+      const el = board.elements[id]!;
+      return { op: "update", id, data: Object.fromEntries(styleKeys.filter(k => k !== "color" || filled(el) === filled(from)).map(k => [k, from[k] ?? null])) } as Op;
+    }));
+    say("已粘贴样式");
+  };
+  pickColour.current = colour => update(ofType("shape", "note", "container", "table", "text", "arrow", "stroke"), { color: colour });
+  const zoom = (to: (z: number) => number) => {
+    const view = viewport.current!.getBoundingClientRect();
+    setCamera(c => {
+      const z = clamp(to(c.z), 0.1, 4), px = view.width / 2, py = view.height / 2;
+      return { z, x: px - ((px - c.x) * z) / c.z, y: py - ((py - c.y) * z) / c.z };
+    });
+  };
+  const toggleGrid = () => {
+    setGrid(!grid);
+    try { localStorage.setItem("artti.grid", grid ? "off" : "on"); } catch {}
   };
   const editCell = (id: string, at: [number, number]) => {
     setSelected([id]);
     setEditing(id);
-    setCell(at);
-    lastCell.current = { id, at };
+    setCell({ id, at });
   };
   /** A comment begun on an element, pinned at its top right. */
   const commentOn = (id: string) => {
@@ -466,6 +507,11 @@ export function Whiteboard({ data }: { data: Loaded }) {
     if (mod && key === "d") { event.preventDefault(); return duplicate(); }
     if (mod && key === "g") { event.preventDefault(); return event.shiftKey ? ungroup() : group(); }
     if (mod && key === "f") { event.preventDefault(); return setFinding(true); }
+    if (mod && event.altKey && event.code === "KeyC") { event.preventDefault(); return copyStyle(); }
+    if (mod && event.altKey && event.code === "KeyV") { event.preventDefault(); return pasteStyle(); }
+    if (mod && (event.key === "=" || event.key === "+")) { event.preventDefault(); return zoom(z => z * 1.25); }
+    if (mod && event.key === "-") { event.preventDefault(); return zoom(z => z / 1.25); }
+    if (mod && event.key === "0") { event.preventDefault(); return zoom(() => 1); }
     if (mod && (key === "c" || key === "x") && live.length) {
       void navigator.clipboard.writeText(JSON.stringify({ artti: snapshot(live) }));
       if (key === "x") remove(); else say("已复制");
@@ -545,7 +591,7 @@ export function Whiteboard({ data }: { data: Loaded }) {
 
   return (
     <>
-      <div ref={viewport} className={`wb ${space || tool === "hand" ? "hand" : tool === "select" ? "" : tool === "text" ? "texting" : tool === "comment" ? "commenting" : "drawing"}`}
+      <div ref={viewport} className={`wb${grid ? "" : " no-grid"} ${space || tool === "hand" ? "hand" : tool === "select" ? "" : tool === "text" ? "texting" : tool === "comment" ? "commenting" : "drawing"}`}
         onDragOver={event => event.preventDefault()}
         onDrop={event => { event.preventDefault(); void upload([...event.dataTransfer.files], toWorld(event)); }}
         onPointerDown={event => {
@@ -585,6 +631,8 @@ export function Whiteboard({ data }: { data: Loaded }) {
             gesture.current = { kind: "draw", start: p, tool };
           } else {
             const picked = hit ?? sectionEdge(p);
+            const at = target.closest<HTMLElement>("[data-cell]")?.dataset.cell?.split(",").map(Number) as [number, number] | undefined;
+            if (picked && at) setCell({ id: picked, at });
             if (picked) {
               const unit = event.metaKey ? [picked] : withGroups([picked]);
               const next = event.shiftKey ? (live.includes(picked) ? live.filter(id => !unit.includes(id)) : [...live, ...unit]) : live.includes(picked) ? live : unit;
@@ -725,8 +773,8 @@ export function Whiteboard({ data }: { data: Loaded }) {
             const el = placed(id);
             return <ElementView key={id} id={id} el={el} selected={live.includes(id) && !editing} editing={editing === id} resolve={resolve}
               path={el.type === "arrow" ? pathOf(el) : undefined} faded={fading.includes(id)} onText={text => onText(id, text)}
-              cell={editing === id ? cell : undefined} onTab={back => {
-                const rows = cellsOf(el), width = rows[0]!.length, n = (cell![0] * width + cell![1] + (back ? -1 : 1) + rows.length * width) % (rows.length * width);
+              cell={cell?.id === id ? cell.at : undefined} onTab={back => {
+                const rows = cellsOf(el), width = rows[0]!.length, n = (cell!.at[0] * width + cell!.at[1] + (back ? -1 : 1) + rows.length * width) % (rows.length * width);
                 editCell(id, [Math.floor(n / width), n % width]);
               }}
               live={live.length === 1 && live[0] === id && !busy && tool === "select"}
@@ -802,12 +850,21 @@ export function Whiteboard({ data }: { data: Loaded }) {
               <button className="t" title="在当前列右边加一列" onClick={() => reshape("column")}>+列</button>
               <button className="t" title="删掉当前行" onClick={() => reshape("-row")}>−行</button>
               <button className="t" title="删掉当前列" onClick={() => reshape("-column")}>−列</button>
+              <select title="给点中的格子上色" value="" onChange={e => colourCell(e.target.value === "none" ? null : e.target.value)}>
+                <option value="">格子颜色</option>
+                {fills.map(c => <option key={c} value={c}>{c}</option>)}
+                <option value="none">去掉颜色</option>
+              </select>
               <select title="热力图：按数字大小上色" value={typeof single.heat === "string" ? single.heat : ""} onChange={e => update(live, { heat: e.target.value || null })}>
                 <option value="">无热力图</option>
                 {fills.filter(c => c !== "white").map(c => <option key={c} value={c}>热力 {c}</option>)}
               </select></>}
             {single?.type === "link" && typeof single.url === "string" && <><span className="sep" />
-              <button className="t" onClick={() => window.open(single.url as string, "_blank", "noopener")}>打开</button></>}
+              <button className="t" onClick={() => window.open(single.url as string, "_blank", "noopener")}>打开</button>
+              {/^https:\/\//u.test(single.url) && !locked && <button className="t" title="把这个网页嵌进白板" onClick={() => {
+                const id = live[0]!, { x, y, url } = single;
+                commit([{ op: "set", id, data: { type: "html", x, y, w: 640, h: 420, src: url } }]);
+              }}>嵌入</button>}</>}
             {!locked && has("text", "arrow", "stroke") && <>{has("shape", "note", "container", "table") && <span className="sep" />}{inks.map(c => (
               <button key={c} className={`swatch${ofType("text", "arrow", "stroke").some(id => board.elements[id]!.color === c) ? " on" : ""}`} title={c}
                 style={{ background: `var(--ink-${c})` }} onClick={() => update(ofType("text", "arrow", "stroke"), { color: c })} />
@@ -817,11 +874,32 @@ export function Whiteboard({ data }: { data: Loaded }) {
                 {!single?.size && <option value="">字号</option>}
                 {(Object.keys(textSizes) as TextSize[]).map(s => <option key={s} value={s}>{sizeNames[s]}</option>)}
               </select></>}
-            {!locked && single?.type === "shape" && (
+            {!locked && single?.type === "shape" && <>
               <select value={(single.kind as string) ?? "rounded"} onChange={e => update(live, { kind: e.target.value })} title="形状">
                 {shapeKinds.map(k => <option key={k} value={k}>{shapeNames[k]}</option>)}
               </select>
+              <select title="边框" value={!single.stroke ? "" : single.dash === "dot" ? "dot" : single.dash ? "dash" : "line"}
+                onChange={e => update(live, e.target.value ? { stroke: single.stroke ?? "ink", dash: e.target.value === "dot" ? "dot" : e.target.value === "dash" ? true : null } : { stroke: null, dash: null })}>
+                <option value="">无边框</option><option value="line">实线边框</option><option value="dash">虚线边框</option><option value="dot">点线边框</option>
+              </select></>}
+            {!locked && has("shape", "note", "text", "container", "table") && (
+              <select title="字体" value={String(single?.font ?? "sans")} onChange={e => update(ofType("shape", "note", "text", "container", "table"), { font: e.target.value === "sans" ? null : e.target.value })}>
+                {Object.entries(fonts).map(([k, f]) => <option key={k} value={k}>{f.name}</option>)}
+              </select>
             )}
+            {!locked && has("shape", "note", "container", "table", "text", "arrow", "stroke") && (
+              <input type="color" title="自选颜色（可以填十六进制，也可以用吸管从屏幕上取）" key={live.join()}
+                defaultValue={typeof single?.color === "string" && single.color.startsWith("#") ? single.color : "#888888"}
+                ref={node => {
+                  if (!node || node.dataset.wired) return;
+                  node.dataset.wired = "1";
+                  // On the picker closing, not on every step of the drag: one change, one undo.
+                  node.addEventListener("change", () => pickColour.current?.(node.value));
+                }} />
+            )}
+            <select title="样式（⌥⌘C 复制 · ⌥⌘V 粘贴）" value="" onChange={e => e.target.value === "copy" ? copyStyle() : pasteStyle()}>
+              <option value="">样式</option><option value="copy">复制样式</option>{style.current && !locked && <option value="paste">粘贴样式</option>}
+            </select>
             {!locked && has("arrow") && <><span className="sep" />
               <select title="箭头" value={single?.type === "arrow" ? JSON.stringify(headsOf(single)) : ""}
                 onChange={e => update(ofType("arrow"), { heads: JSON.parse(e.target.value), head: null })}>
@@ -829,7 +907,9 @@ export function Whiteboard({ data }: { data: Loaded }) {
                 <option value='["none","arrow"]'>→</option><option value='["arrow","arrow"]'>↔</option>
                 <option value='["none","none"]'>—</option><option value='["circle","arrow"]'>●→</option>
               </select>
-              <button className={`t${single?.dash ? " on" : ""}`} title="虚线" onClick={() => update(ofType("arrow"), { dash: single?.dash ? null : true })}>虚线</button></>}
+              <select title="线型" value={String(single?.dash ?? "")} onChange={e => update(ofType("arrow"), { dash: e.target.value === "dot" ? "dot" : e.target.value ? true : null })}>
+                <option value="">实线</option><option value="true">虚线</option><option value="dot">点线</option>
+              </select></>}
             {!locked && has("stroke") && <><span className="sep" />{penWidths.map(w => (
               <button key={w} className={`t${single?.width === w ? " on" : ""}`} title={`${w} 粗`} onClick={() => update(ofType("stroke"), { width: w })}>
                 <svg width={22} height={12}><line x1={2} y1={6} x2={20} y2={6} stroke="currentColor" strokeWidth={w} strokeLinecap="round" /></svg>
@@ -914,10 +994,16 @@ export function Whiteboard({ data }: { data: Loaded }) {
           <button title="下载白板" onClick={() => setMenu(!menu)}>下载</button>
           {menu && <span className="menu"><button onClick={() => void save("png")}>图片 PNG</button><button onClick={() => void save("json")}>数据 JSON</button></span>}
         </span>
+        <button title={layers ? "收起图层" : "图层"} className={layers ? "on" : ""} onClick={() => setLayers(!layers)}>图层</button>
+        <button title={grid ? "关掉网格" : "打开网格"} onClick={toggleGrid}>{grid ? "网格" : "无网格"}</button>
         <button title="撤销（⌘Z）" onClick={() => step("undo")}>↶</button>
         <button title="重做（⇧⌘Z）" onClick={() => step("redo")}>↷</button>
+        <button title="缩小（⌘−）" onClick={() => zoom(z => z / 1.25)}>−</button>
         <button title="整块放进屏幕（⇧1）" onClick={() => fit()}>{Math.round(camera.z * 100)}%</button>
+        <button title="放大（⌘=）" onClick={() => zoom(z => z * 1.25)}>+</button>
       </div>
+      {layers && <Layers order={board.order} elements={board.elements} selected={live} onPick={(id, add) => setSelected(add ? live.includes(id) ? live.filter(i => i !== id) : [...live, id] : [id])}
+        onClose={() => setLayers(false)} />}
       {toast && <div className="wb-toast">{toast}</div>}
     </>
   );

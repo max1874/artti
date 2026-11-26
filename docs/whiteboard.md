@@ -127,14 +127,12 @@ Each step ends in something Max can use and that has been checked in a browser.
 
 ## Not yet matched (2026-11-26)
 
-After step 4, these items from the lists above are still missing:
+After the pass that followed step 4, these are still missing:
 
-- **Arrows** do not route around elements in their way.
-- **Tables:** people cannot colour a single cell (agents can, with `fills`), and long tables are not split into pages.
-- **Embeds:** an embed shows an `html` page; there is no way to embed another site by its URL. Pictures of the board show an embed as a label, because a sandboxed page cannot be drawn from outside it.
 - **Stickers** are emoji only: there are no hand-drawn stickers, and no face sticker standing for a person, since one machine has one person.
-- **Style:** copying and pasting just the style; hex values and the screen colour picker; a choice of font; outline and line styles.
-- **Layers:** selecting a layer, and a drawing's layers.
-- **Navigation:** zoom-in and zoom-out buttons, and hiding the grid.
+- **Tables** are not split into pages when long.
+- **Layers:** the list picks elements but does not drag them into a new order or hide them; a drawing has no layers of its own.
 - **Voice:** dictation. macOS dictation works in any text box meanwhile.
 - **Many people:** everything in "Many people", which waits for sharing.
+
+Pictures of the board show an embed as a label, because a sandboxed page cannot be drawn from outside it; a site that refuses to be embedded shows its address instead.

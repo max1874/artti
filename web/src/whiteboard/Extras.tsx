@@ -1,7 +1,7 @@
-// What sits around the board rather than on it: the countdown, find, and taking the board away as a file.
+// What sits around the board rather than on it: the countdown, find, the layers list, and taking the board away as a file.
 
 import { useEffect, useRef, useState } from "react";
-import type { Timer as Countdown } from "./model.ts";
+import { type Element, type Timer as Countdown, wordsOf } from "./model.ts";
 
 const clock = (ms: number) => {
   const s = Math.max(0, Math.ceil(ms / 1000));
@@ -71,4 +71,29 @@ export function download(name: string, href: string) {
   a.download = name;
   a.click();
   if (href.startsWith("blob:")) setTimeout(() => URL.revokeObjectURL(href), 1000);
+}
+
+const typeNames: Record<string, string> = {
+  shape: "形状", note: "便签", container: "分区", text: "文字", stroke: "笔画", arrow: "箭头", image: "图片", html: "网页", table: "表格", link: "链接", sticker: "贴纸",
+};
+
+/** Every element, front to back: click picks one, shift-click adds or removes it. */
+export function Layers({ order, elements, selected, onPick, onClose }: {
+  order: string[]; elements: Record<string, Element>; selected: string[]; onPick: (id: string, add: boolean) => void; onClose: () => void;
+}) {
+  return (
+    <aside className="wb-layers" onPointerDown={e => e.stopPropagation()}>
+      <header><b>图层</b><span>{order.length}</span><button className="quiet" onClick={onClose}>×</button></header>
+      <ol>
+        {[...order].reverse().map(id => {
+          const el = elements[id]!, words = wordsOf(el).split("\n")[0]!.slice(0, 40);
+          return (
+            <li key={id} className={selected.includes(id) ? "on" : undefined} onClick={e => onPick(id, e.shiftKey)}>
+              <span className="type">{typeNames[el.type] ?? el.type}</span>{words || <i>{id}</i>}{el.locked ? " 🔒" : ""}
+            </li>
+          );
+        })}
+      </ol>
+    </aside>
+  );
 }

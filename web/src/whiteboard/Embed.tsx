@@ -24,8 +24,8 @@ const bridge = `<script>(() => {
   parent.postMessage({ artti: "ready" }, "*");
 })();</script>`;
 
-export function Embed({ html, state, live, onSave, onEscape }: {
-  html: string; state: unknown; live: boolean; onSave: (state: unknown) => void; onEscape: () => void;
+export function Embed({ html, src, state, live, onSave, onEscape }: {
+  html: string; src?: string; state: unknown; live: boolean; onSave: (state: unknown) => void; onEscape: () => void;
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
   // The state the page last had, so its own saves coming back from the server are not sent to it again.
@@ -55,7 +55,11 @@ export function Embed({ html, state, live, onSave, onEscape }: {
   }, []);
   useEffect(() => { if (known.current !== undefined && JSON.stringify(state ?? null) !== known.current) send(); }, [state]);
 
-  // No same-origin: the page cannot reach artti or the files beside it.
-  return <iframe ref={frame} srcDoc={bridge + html} sandbox="allow-scripts allow-forms" title="embed"
-    style={{ pointerEvents: live ? "auto" : "none" }} />;
+  const style = { pointerEvents: live ? "auto" as const : "none" as const };
+  // Another site keeps its own origin, which is never this one: it may not point back at the machine's own server.
+  if (src) return /^https:\/\//u.test(src) && !/^https:\/\/(localhost|127\.)/u.test(src)
+    ? <iframe src={src} sandbox="allow-scripts allow-same-origin allow-forms allow-popups" title="embed" style={style} />
+    : null;
+  // A page of ours has no origin at all: it cannot reach artti or the files beside it.
+  return <iframe ref={frame} srcDoc={bridge + html} sandbox="allow-scripts allow-forms" title="embed" style={style} />;
 }
